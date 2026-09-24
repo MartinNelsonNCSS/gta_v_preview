@@ -11,6 +11,7 @@ import {
   TextureStore,
 } from '../scene';
 import { openLightbox, textureCanvas, textureDescription } from '../textureCanvas';
+import { buildCollision } from '../collision';
 import { checkbox, cutSlider, fmt, h, newRequestId, onHostMessage, pref, select, setPref, vscode } from '../ui';
 import { Viewer } from '../viewer';
 
@@ -81,6 +82,7 @@ export class ModelPanel {
   private lod: LodLevel = 'high';
   private opts = renderOptions();
   private bounds?: THREE.Object3D;
+  private collision?: THREE.Object3D;
   private offStore: () => void;
 
   constructor(private readonly options: ModelPanelOptions = {}) {
@@ -146,6 +148,11 @@ export class ModelPanel {
     this.bounds = boxHelper(d.bbMin, d.bbMax, 0xffc107);
     this.bounds.visible = pref('bounds', false);
     this.viewer.overlay.add(this.bounds);
+    this.collision = d.bounds ? buildCollision(d.bounds, { overlay: true, wireframe: false, triangles: true, primitives: true }) : undefined;
+    if (this.collision) {
+      this.collision.visible = pref('collision', false);
+      this.viewer.overlay.add(this.collision);
+    }
     if (frame) this.viewer.frame();
     this.renderToolbar();
     this.renderSidebar();
@@ -208,6 +215,12 @@ export class ModelPanel {
         if (this.bounds) this.bounds.visible = v;
         this.viewer.requestRender();
       }),
+      d?.bounds
+        ? checkbox('Collision', 'collision', false, (v) => {
+            if (this.collision) this.collision.visible = v;
+            this.viewer.requestRender();
+          })
+        : null,
       cutSlider(
         () => (d ? { min: d.bbMin[2], max: d.bbMax[2] } : undefined),
         (z) => this.viewer.setCutHeight(z)
@@ -238,6 +251,7 @@ export class ModelPanel {
       kv('Size', `${size.map((v) => fmt(v)).join(' × ')} m`),
       kv('Models / geometries', `${stats.models} / ${stats.geometries}`),
       kv('Bones', d.bones.length ? String(d.bones.length) : '—'),
+      kv('Collision', d.bounds ? `${fmt(d.bounds.triangles)} tris, ${fmt(d.bounds.primitives.length)} primitives` : '—'),
       h(
         'table',
         { class: 'grid-table' },

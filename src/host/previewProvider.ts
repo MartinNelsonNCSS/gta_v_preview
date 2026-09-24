@@ -3,7 +3,10 @@ import { parseYdd, parseYdr } from '../formats/drawable';
 import { joaat } from '../formats/hash';
 import { listYtdTextureNames, parseYtd, readYtdTextures } from '../formats/ytd';
 import { parseYtyp } from '../formats/ytyp';
+import { parseYmap } from '../formats/ymap';
+import { parseYbn } from '../formats/bounds';
 import type {
+  ArchetypeData,
   ArchetypeRequest,
   DrawableData,
   HostToWebview,
@@ -18,10 +21,14 @@ export const VIEW_TYPES: Record<ViewKind, string> = {
   dictionary: 'gtaPreview.ydd',
   ytyp: 'gtaPreview.ytyp',
   ytd: 'gtaPreview.ytd',
+  ymap: 'gtaPreview.ymap',
+  ybn: 'gtaPreview.ybn',
 };
 
 /** Texture names per .ytd, keyed by URI and invalidated by mtime. */
 const ytdNameCache = new Map<string, { mtime: number; names: Set<string> }>();
+/** Archetype definitions per .ytyp, keyed by URI and invalidated by mtime. */
+const ytypCache = new Map<string, { mtime: number; archetypes: ArchetypeData[] }>();
 
 /** Stops scanning after this many dictionaries per texture request. */
 const MAX_YTD_SCAN = 400;
@@ -88,6 +95,7 @@ class PreviewSession {
   private readonly disposables: vscode.Disposable[] = [];
   private readonly index: AssetIndex;
   private readonly yddCache = new Map<string, Promise<DrawableData[]>>();
+  private archetypeIndexPromise?: Promise<Map<number, ArchetypeData>>;
   private disposed = false;
 
   constructor(private readonly uri: vscode.Uri, private readonly kind: ViewKind, private readonly panel: vscode.WebviewPanel) {
@@ -159,16 +167,56 @@ class PreviewSession {
         case 'ytd':
           this.post({ type: 'ytd', file, textures: parseYtd(data, { maxSize }) });
           break;
-        case 'ytyp': {
+        case 'ytyp':
           // File names nearby let us turn most name hashes back into names.
-          const names = (await this.index.all()).map((f) => f.base);
-          this.post({ type: 'ytyp', file, ytyp: parseYtyp(data, { knownNames: names }) });
+          this.post({ type: 'ytyp', file, ytyp: parseYtyp(data, { knownNames: await this.knownNames() }) });
           break;
-        }
+        case 'ymap':
+          this.post({ type: 'ymap', file, ymap: parseYmap(data, { knownNames: await this.knownNames() }) });
+          break;
+        case 'ybn':
+          this.post({ type: 'ybn', file, bounds: parseYbn(data) });
+          break;
       }
     } catch (err) {
       this.post({ type: 'error', message: (err as Error).message });
     }
+  }
+
+  /** Names of nearby files, used to resolve name hashes. */
+  private async knownNames(): Promise<string[]> {
+    return (await this.index.all()).map((f) => f.base);
+  }
+
+  /**
+   * Archetype definitions from every .ytyp in scope, keyed by name hash. Lets
+   * .ymap entities find their drawable dictionary and MLO interior layouts.
+   */
+  private async archetypeIndex(): Promise<Map<number, ArchetypeData>> {
+    this.archetypeIndexPromise ??= (async () => {
+      const index = new Map<number, ArchetypeData>();
+      const names = await this.knownNames();
+      for (const ytyp of await this.index.byExt('ytyp')) {
+        try {
+          const key = ytyp.uri.toString();
+          const stat = await vscode.workspace.fs.stat(ytyp.uri);
+          let entry = ytypCache.get(key);
+          if (!entry || entry.mtime !== stat.mtime) {
+            const parsed = parseYtyp(await vscode.workspace.fs.readFile(ytyp.uri), { knownNames: names });
+            entry = { mtime: stat.mtime, archetypes: parsed.archetypes };
+            ytypCache.set(key, entry);
+          }
+          for (const a of entry.archetypes) {
+            const hash = nameToHash(a.name);
+            if (!index.has(hash)) index.set(hash, a);
+          }
+        } catch {
+          // Skip unreadable .ytyp files.
+        }
+      }
+      return index;
+    })();
+    return this.archetypeIndexPromise;
   }
 
   /**
@@ -219,26 +267,35 @@ class PreviewSession {
     }
   }
 
-  /** Loads the models behind .ytyp archetypes (from .ydr, or .ydd when a dictionary is set). */
+  /**
+   * Loads the models behind archetypes (from .ydr, or .ydd when a dictionary is
+   * set), along with their definitions from nearby .ytyp files.
+   */
   private async loadArchetypes(requestId: number, requests: ArchetypeRequest[], maxTextureSize?: number): Promise<void> {
     const opts = { maxSize: Math.min(maxTextureSize ?? Infinity, config('maxTextureSize', 1024)) };
     const files = await this.index.all();
+    const defs = await this.archetypeIndex();
     const find = (name: string, ext: string) => {
       const hash = nameToHash(name);
       return files.find((f) => f.ext === ext && f.hash === hash);
     };
 
-    let batch: Record<string, DrawableData | null> = {};
+    let models: Record<string, DrawableData | null> = {};
+    let archetypes: Record<string, ArchetypeData | null> = {};
     let count = 0;
     for (const req of requests) {
       if (this.disposed) return;
-      batch[req.name] = await this.loadArchetype(req, find, opts).catch(() => null);
+      const def = defs.get(nameToHash(req.name)) ?? null;
+      archetypes[req.name] = def;
+      const dictionary = req.dictionary || def?.drawableDictionary || undefined;
+      models[req.name] = def?.mlo ? null : await this.loadArchetype({ ...req, dictionary }, find, opts).catch(() => null);
       if (++count % ARCHETYPE_BATCH === 0) {
-        this.post({ type: 'archetypeModels', requestId, models: batch, done: false });
-        batch = {};
+        this.post({ type: 'archetypeModels', requestId, models, archetypes, done: false });
+        models = {};
+        archetypes = {};
       }
     }
-    this.post({ type: 'archetypeModels', requestId, models: batch, done: true });
+    this.post({ type: 'archetypeModels', requestId, models, archetypes, done: true });
   }
 
   private async loadArchetype(

@@ -15,7 +15,14 @@ const common = {
 const builds = toolsOnly
   ? [
       { ...common, entryPoints: ['tools/inspect.ts'], outfile: 'out/inspect.js', platform: 'node', format: 'cjs' },
-      { ...common, entryPoints: ['tools/harness/host.ts'], outfile: 'out/harness.js', platform: 'browser', format: 'iife' },
+      {
+        ...common,
+        entryPoints: ['tools/harness/host.ts'],
+        outfile: 'out/harness.js',
+        platform: 'browser',
+        format: 'iife',
+        alias: { vscode: './tools/harness/vscode-stub.ts' },
+      },
     ]
   : [
       // Desktop extension host (Node).

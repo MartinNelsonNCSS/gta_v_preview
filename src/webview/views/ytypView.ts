@@ -1,12 +1,10 @@
 import * as THREE from 'three';
-import type { ArchetypeData, ArchetypeRequest, DrawableData, EntityData, YtypData } from '../../shared/model';
-import { availableLod, boxHelper, buildDrawable, TextureStore } from '../scene';
-import { checkbox, cutSlider, fmt, h, newRequestId, onHostMessage, pref, vscode } from '../ui';
-import { Viewer } from '../viewer';
-import { fetchTextures, kv, ModelPanel, renderOptions, section } from './modelPanel';
-
-/** Textures in interiors are capped lower to keep memory reasonable. */
-const MLO_TEXTURE_SIZE = 512;
+import type { ArchetypeData, ArchetypeRequest, EntityData, YtypData } from '../../shared/model';
+import { boxHelper } from '../scene';
+import { checkbox, cutSlider, fmt, h, pref, vscode } from '../ui';
+import { entityMatrix, EntityScene, loadArchetypes } from './entityScene';
+import { jsonTree } from './jsonTree';
+import { kv, ModelPanel, section } from './modelPanel';
 
 const TYPE_LABELS: Record<string, string> = {
   CBaseArchetypeDef: 'Base',
@@ -57,33 +55,9 @@ export function ytypView(file: string, ytyp: YtypData): HTMLElement {
   return root;
 }
 
-// ---------------------------------------------------------------------------
-// Model loading
-// ---------------------------------------------------------------------------
-
 function requestFor(name: string, ytyp: YtypData): ArchetypeRequest {
   const def = ytyp.archetypes.find((a) => a.name.toLowerCase() === name.toLowerCase());
   return { name, dictionary: def?.drawableDictionary || undefined };
-}
-
-/** Asks the host for archetype models; `onBatch` is called as they arrive. */
-function loadArchetypes(
-  requests: ArchetypeRequest[],
-  onBatch: (models: Record<string, DrawableData | null>) => void,
-  maxTextureSize?: number
-): Promise<void> {
-  const requestId = newRequestId();
-  return new Promise((resolve) => {
-    const off = onHostMessage((m) => {
-      if (m.type !== 'archetypeModels' || m.requestId !== requestId) return;
-      onBatch(m.models);
-      if (m.done) {
-        off();
-        resolve();
-      }
-    });
-    vscode.postMessage({ type: 'loadArchetypes', requestId, archetypes: requests, maxTextureSize });
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -205,93 +179,92 @@ function archetypeDetails(a: ArchetypeData): HTMLElement {
 // Interior (MLO) view
 // ---------------------------------------------------------------------------
 
-/** Entity transform. CEntityDef stores the inverse rotation, so conjugate it. */
-function entityMatrix(e: EntityData): THREE.Matrix4 {
-  const [x, y, z, w] = e.rotation;
-  const q = new THREE.Quaternion(-x, -y, -z, w).normalize();
-  return new THREE.Matrix4().compose(new THREE.Vector3(...e.position), q, new THREE.Vector3(...e.scale));
+/** Details rows for an entity, shared by the interior and map views. */
+export function entityDetails(e: EntityData, model: string): HTMLElement[] {
+  return [
+    kv('Archetype', e.archetype),
+    kv('Model', model),
+    ...(e.room ? [kv('Room', e.room)] : []),
+    ...(e.entitySet ? [kv('Entity set', e.entitySet)] : []),
+    ...(e.lodLevel ? [kv('LOD level', e.lodLevel.replace(/^LODTYPES_DEPTH_/, ''))] : []),
+    kv('Position', e.position.map((v) => fmt(v, 3)).join(', ')),
+    kv('Rotation', e.rotation.map((v) => fmt(v, 3)).join(', ')),
+    kv('Scale', e.scale.map((v) => fmt(v, 2)).join(', ')),
+    kv('LOD distance', fmt(e.lodDist)),
+    kv('Flags', `0x${e.flags.toString(16)}`),
+  ];
+}
+
+export function modelState(scene: EntityScene, e: EntityData): string {
+  const key = e.archetype.toLowerCase();
+  if (!scene.models.has(key)) return 'loading…';
+  const d = scene.models.get(key);
+  return d ? d.name : scene.defs.get(key)?.mlo ? 'interior (MLO)' : 'not found';
 }
 
 class MloView {
   readonly el: HTMLElement;
-  private readonly viewer: Viewer;
-  private readonly store = new TextureStore();
-  private readonly cache = new Map<object, unknown>();
-  private readonly entityGroups: THREE.Group[] = [];
-  private readonly models = new Map<string, DrawableData | null>();
+  private readonly scene: EntityScene;
   private readonly portals = new THREE.Group();
   private readonly rooms = new THREE.Group();
-  private readonly status = h('div', { class: 'status' });
   private readonly info = h('div', { class: 'entity-info' });
   private readonly entityRows: HTMLElement[] = [];
-  private selection?: THREE.Object3D;
   private selectedIndex = -1;
   private readonly hiddenSets = new Set<string>();
 
-  constructor(private readonly archetype: ArchetypeData, private readonly ytyp: YtypData) {
+  constructor(private readonly archetype: ArchetypeData, ytyp: YtypData) {
     const mlo = archetype.mlo!;
-    const stage = h('div', { class: 'stage' }, this.status);
+    const status = h('div', { class: 'status' });
+    const stage = h('div', { class: 'stage' }, status);
     const sidebar = h('div', { class: 'sidebar' });
+    this.scene = new EntityScene(stage, status, ytyp.archetypes);
     this.el = h('div', { class: 'model-panel' }, this.toolbar(), h('div', { class: 'model-body' }, stage, sidebar));
-    this.viewer = new Viewer(stage);
-    this.viewer.setGridVisible(pref('grid', true));
-    this.store.showTextures = pref('textures', true);
-    this.store.onChange(() => this.viewer.requestRender());
 
-    // Placeholders first, so the layout is visible immediately.
-    const content = mlo.entities.map((e, i) => {
-      const g = new THREE.Group();
-      g.matrixAutoUpdate = false;
-      g.matrix.copy(entityMatrix(e));
-      g.userData.entityIndex = i;
-      g.add(this.placeholder(e));
-      this.entityGroups.push(g);
-      return g;
-    });
-    this.viewer.setContent(...content);
+    this.scene.add(mlo.entities.map((entity) => ({ entity, matrix: entityMatrix(entity) })));
     this.buildRoomsAndPortals();
-    this.viewer.frame();
-
-    this.canvasPicking(stage);
+    this.scene.viewer.frame();
+    this.scene.onPick = (i) => this.select(i, false);
     sidebar.append(...this.sidebarContent());
-    void this.loadModels();
+    void this.load();
+  }
+
+  private async load(): Promise<void> {
+    const { requested, found } = await this.scene.loadModels();
+    if (!this.scene.viewer.userMoved) this.scene.viewer.frame();
+    const missing = requested - found;
+    const summary = missing ? `${found} of ${requested} models found; ${missing} shown as boxes (base-game or missing files).` : '';
+    this.scene.setStatus(summary);
+    await this.scene.loadTextures(summary);
+    if (this.selectedIndex >= 0) this.select(this.selectedIndex, false);
   }
 
   private toolbar(): HTMLElement {
+    const mlo = this.archetype.mlo!;
+    const viewer = () => this.scene.viewer;
     return h(
       'div',
       { class: 'toolbar' },
       h('strong', null, this.archetype.name),
-      h('span', { class: 'muted' }, `${this.archetype.mlo!.entities.length} entities · ${this.archetype.mlo!.rooms.length} rooms · ${this.archetype.mlo!.portals.length} portals`),
+      h('span', { class: 'muted' }, `${mlo.entities.length} entities · ${mlo.rooms.length} rooms · ${mlo.portals.length} portals`),
       h('span', { class: 'sep' }),
       checkbox('Textures', 'textures', true, (v) => {
-        this.store.showTextures = v;
-        this.store.refresh();
-        this.viewer.requestRender();
+        this.scene.store.showTextures = v;
+        this.scene.store.refresh();
+        viewer().requestRender();
       }),
-      checkbox('Portals', 'mloPortals', false, (v) => ((this.portals.visible = v), this.viewer.requestRender())),
-      checkbox('Room bounds', 'mloRooms', false, (v) => ((this.rooms.visible = v), this.viewer.requestRender())),
-      checkbox('Grid', 'grid', true, (v) => this.viewer.setGridVisible(v)),
+      checkbox('Portals', 'mloPortals', false, (v) => ((this.portals.visible = v), viewer().requestRender())),
+      checkbox('Room bounds', 'mloRooms', false, (v) => ((this.rooms.visible = v), viewer().requestRender())),
+      checkbox('Grid', 'grid', true, (v) => viewer().setGridVisible(v)),
       cutSlider(
         () => {
-          const b = new THREE.Box3().setFromObject(this.viewer.content);
+          const b = new THREE.Box3().setFromObject(viewer().content);
           return b.isEmpty() ? undefined : { min: b.min.z, max: b.max.z };
         },
-        (z) => this.viewer.setCutHeight(z)
+        (z) => viewer().setCutHeight(z)
       ),
       h('span', { class: 'spacer' }),
-      h('button', { class: 'chip', onclick: () => this.viewer.frame() }, 'Frame')
+      h('button', { class: 'chip', onclick: () => viewer().frame() }, 'Frame')
     );
-  }
-
-  private placeholder(e: EntityData): THREE.Object3D {
-    const def = this.ytyp.archetypes.find((a) => a.name.toLowerCase() === e.archetype.toLowerCase());
-    const box =
-      def && !def.mlo && def.bbMax.some((v, i) => v > def.bbMin[i])
-        ? boxHelper(def.bbMin, def.bbMax, 0x8a8f98)
-        : boxHelper([-0.25, -0.25, 0], [0.25, 0.25, 0.5], 0x8a8f98);
-    box.userData.placeholder = true;
-    return box;
   }
 
   private buildRoomsAndPortals(): void {
@@ -312,117 +285,28 @@ class MloView {
     });
     this.portals.visible = pref('mloPortals', false);
     this.rooms.visible = pref('mloRooms', false);
-    this.viewer.overlay.add(this.portals, this.rooms);
-  }
-
-  private async loadModels(): Promise<void> {
-    const mlo = this.archetype.mlo!;
-    const names = [...new Set(mlo.entities.map((e) => e.archetype))];
-    let loaded = 0;
-    let found = 0;
-    this.setStatus(`Loading models… 0 / ${names.length}`);
-    await loadArchetypes(
-      names.map((n) => requestFor(n, this.ytyp)),
-      (models) => {
-        for (const [name, d] of Object.entries(models)) {
-          this.models.set(name.toLowerCase(), d);
-          loaded++;
-          if (d) {
-            found++;
-            this.store.add(d.textures, 'embedded');
-            this.attachModel(name, d);
-          }
-        }
-        this.setStatus(`Loading models… ${loaded} / ${names.length}`);
-        this.viewer.requestRender();
-      },
-      MLO_TEXTURE_SIZE
-    );
-    if (!this.viewer.userMoved) this.viewer.frame();
-    const missing = names.length - found;
-    const summary = missing ? `${found} of ${names.length} models found; ${missing} shown as boxes (base-game or missing files).` : '';
-    this.setStatus(summary);
-
-    const textureNames = [...this.models.values()].flatMap((d) => d?.shaders.map((s) => s.diffuse).filter((n): n is string => !!n) ?? []);
-    const hints = this.ytyp.archetypes.map((a) => a.textureDictionary).filter((t) => !!t);
-    await fetchTextures(this.store, textureNames, hints, (s) => this.setStatus([summary, s].filter(Boolean).join(' · ')), MLO_TEXTURE_SIZE);
-  }
-
-  private attachModel(name: string, d: DrawableData): void {
-    const key = name.toLowerCase();
-    const opts = renderOptions();
-    const lod = availableLod(d, 'high');
-    this.archetype.mlo!.entities.forEach((e, i) => {
-      if (e.archetype.toLowerCase() !== key) return;
-      const g = this.entityGroups[i];
-      g.children.filter((c) => c.userData.placeholder).forEach((c) => g.remove(c));
-      g.add(buildDrawable(d, lod, this.store, opts, this.cache));
-    });
-  }
-
-  private setStatus(text: string): void {
-    this.status.textContent = text;
-    this.status.hidden = !text;
-  }
-
-  // -- selection --------------------------------------------------------------
-
-  private canvasPicking(stage: HTMLElement): void {
-    let down = { x: 0, y: 0 };
-    stage.addEventListener('pointerdown', (e) => (down = { x: e.clientX, y: e.clientY }));
-    stage.addEventListener('pointerup', (e) => {
-      if (Math.hypot(e.clientX - down.x, e.clientY - down.y) > 4) return; // was a drag
-      let o: THREE.Object3D | null = this.viewer.pick(e.clientX, e.clientY)?.object ?? null;
-      while (o && o.userData.entityIndex === undefined) o = o.parent;
-      this.select(o ? (o.userData.entityIndex as number) : -1, false);
-    });
+    this.scene.viewer.overlay.add(this.portals, this.rooms);
   }
 
   private select(index: number, focus: boolean): void {
-    if (this.selection) {
-      this.viewer.overlay.remove(this.selection);
-      this.selection = undefined;
-    }
     this.entityRows[this.selectedIndex]?.classList.remove('selected');
     this.selectedIndex = index;
+    this.scene.highlight(index, focus);
     const e = this.archetype.mlo!.entities[index];
     if (!e) {
       this.info.replaceChildren(h('div', { class: 'muted' }, 'Click an entity to inspect it.'));
-      this.viewer.requestRender();
       return;
     }
-    const g = this.entityGroups[index];
-    g.updateMatrixWorld(true);
-    const box = new THREE.Box3().setFromObject(g);
-    this.selection = new THREE.Box3Helper(box, 0xffc107);
-    this.viewer.overlay.add(this.selection);
     const row = this.entityRows[index];
     row?.classList.add('selected');
     if (!focus) row?.scrollIntoView({ block: 'nearest' });
-    if (focus) this.viewer.frame(box);
-
-    const model = this.models.get(e.archetype.toLowerCase());
-    this.info.replaceChildren(
-      kv('Archetype', e.archetype),
-      kv('Model', model ? `${model.name}` : model === null ? 'not found' : 'loading…'),
-      kv('Room', e.room ?? '—'),
-      ...(e.entitySet ? [kv('Entity set', e.entitySet)] : []),
-      kv('Position', e.position.map((v) => fmt(v, 3)).join(', ')),
-      kv('Rotation', e.rotation.map((v) => fmt(v, 3)).join(', ')),
-      kv('Scale', e.scale.map((v) => fmt(v, 2)).join(', ')),
-      kv('LOD distance', fmt(e.lodDist)),
-      kv('Flags', `0x${e.flags.toString(16)}`)
-    );
-    this.viewer.requestRender();
+    this.info.replaceChildren(...entityDetails(e, modelState(this.scene, e)));
   }
-
-  // -- sidebar ------------------------------------------------------------------
 
   private sidebarContent(): HTMLElement[] {
     const mlo = this.archetype.mlo!;
     const entityRow = (i: number) => {
-      const e = mlo.entities[i];
-      const row = h('div', { class: 'entity-row', onclick: () => this.select(i, true), title: 'Click to focus' }, e.archetype);
+      const row = h('div', { class: 'entity-row', onclick: () => this.select(i, true), title: 'Click to focus' }, mlo.entities[i].archetype);
       this.entityRows[i] = row;
       return row;
     };
@@ -439,10 +323,9 @@ class MloView {
                 type: 'checkbox',
                 checked: true,
                 onchange: (ev: Event) => {
-                  const on = (ev.target as HTMLInputElement).checked;
-                  if (on) this.hiddenSets.delete(s.name);
+                  if ((ev.target as HTMLInputElement).checked) this.hiddenSets.delete(s.name);
                   else this.hiddenSets.add(s.name);
-                  this.applySetVisibility();
+                  this.scene.setHidden((p) => !!p.entity.entitySet && this.hiddenSets.has(p.entity.entitySet));
                 },
               }),
               `${s.name} (${s.entityCount})`
@@ -454,59 +337,17 @@ class MloView {
     const assigned = new Set<number>();
     const rooms = mlo.rooms.map((r) => {
       r.entityIndices.forEach((i) => assigned.add(i));
-      return h(
-        'details',
-        { class: 'room' },
-        h('summary', null, `${r.name} (${r.entityIndices.length})`),
-        r.entityIndices.filter((i) => mlo.entities[i]).map(entityRow)
-      );
+      return h('details', { class: 'room' }, h('summary', null, `${r.name} (${r.entityIndices.length})`), r.entityIndices.filter((i) => mlo.entities[i]).map(entityRow));
     });
     const unassigned = mlo.entities.map((_, i) => i).filter((i) => !assigned.has(i));
-    const setsGroups = mlo.entitySets.map((s) => {
+    const setGroups = mlo.entitySets.flatMap((s) => {
       const indices = unassigned.filter((i) => mlo.entities[i].entitySet === s.name);
-      return indices.length ? h('details', { class: 'room' }, h('summary', null, `Set: ${s.name} (${indices.length})`), indices.map(entityRow)) : null;
+      return indices.length ? [h('details', { class: 'room' }, h('summary', null, `Set: ${s.name} (${indices.length})`), indices.map(entityRow))] : [];
     });
     const loose = unassigned.filter((i) => !mlo.entities[i].entitySet);
-    const looseGroup = loose.length ? h('details', { class: 'room' }, h('summary', null, `No room (${loose.length})`), loose.map(entityRow)) : null;
+    const looseGroup = loose.length ? [h('details', { class: 'room' }, h('summary', null, `No room (${loose.length})`), loose.map(entityRow))] : [];
 
     this.select(-1, false);
-    return [
-      section('Selection', true, this.info),
-      ...(sets ? [sets] : []),
-      section(`Rooms (${mlo.rooms.length})`, true, ...rooms, ...setsGroups.filter((x): x is HTMLDetailsElement => !!x), looseGroup ?? []),
-    ];
+    return [section('Selection', true, this.info), ...(sets ? [sets] : []), section(`Rooms (${mlo.rooms.length})`, true, ...rooms, ...setGroups, ...looseGroup)];
   }
-
-  private applySetVisibility(): void {
-    this.archetype.mlo!.entities.forEach((e, i) => {
-      this.entityGroups[i].visible = !e.entitySet || !this.hiddenSets.has(e.entitySet);
-    });
-    this.viewer.requestRender();
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Raw tree
-// ---------------------------------------------------------------------------
-
-/** Collapsible JSON tree; children render lazily when first expanded. */
-function jsonTree(value: unknown, key: string, open = false): HTMLElement {
-  if (value === null || typeof value !== 'object') {
-    return h('div', { class: 'json-leaf' }, h('span', { class: 'json-key' }, key), ': ', h('span', { class: `json-${typeof value}` }, JSON.stringify(value)));
-  }
-  if (Array.isArray(value) && value.every((v) => typeof v === 'number') && value.length <= 4) {
-    return h('div', { class: 'json-leaf' }, h('span', { class: 'json-key' }, key), ': ', h('span', { class: 'json-number' }, `[${value.map((v) => fmt(v, 4)).join(', ')}]`));
-  }
-  const entries = Array.isArray(value) ? value.map((v, i) => [String(i), v] as const) : Object.entries(value).filter(([k]) => k !== '_type');
-  const type = Array.isArray(value) ? `[${value.length}]` : (value as { _type?: string })._type ?? '{}';
-  const details = h('details', { class: 'json-node', open }, h('summary', null, h('span', { class: 'json-key' }, key), ' ', h('span', { class: 'muted' }, type)));
-  let rendered = false;
-  const render = () => {
-    if (rendered || !details.open) return;
-    rendered = true;
-    details.append(h('div', { class: 'json-children' }, entries.map(([k, v]) => jsonTree(v, k))));
-  };
-  details.addEventListener('toggle', render);
-  render();
-  return details;
 }

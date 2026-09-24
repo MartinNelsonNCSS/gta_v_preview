@@ -2,6 +2,7 @@ import { ResourceReader } from './reader';
 import { readRsc7 } from './rsc7';
 import { HashNames, SHADER_FILE_NAMES, SHADER_NAMES, SHADER_PARAM_NAMES } from './hash';
 import { readTextureDictionary, TextureDecodeOptions } from './textures';
+import { readBounds } from './bounds';
 import type {
   BoneData,
   DrawableData,
@@ -83,12 +84,15 @@ export function readDrawable(r: ResourceReader, ptr: number, opts: DrawableOptio
     }
   }
 
-  // The name pointer lives in gtaDrawable, the derived type used by .ydr/.ydd.
+  // The name and collision pointers live in gtaDrawable, the derived type used by .ydr/.ydd.
   let name = '';
+  let bounds: DrawableData['bounds'];
   try {
     name = r.string(r.ptr(ptr + 0xa8)) ?? '';
+    const boundsPtr = r.ptr(ptr + 0xc8);
+    if (r.isValid(boundsPtr)) bounds = readBounds(r, boundsPtr);
   } catch {
-    name = '';
+    // Missing or unreadable collision is not fatal.
   }
 
   return {
@@ -108,6 +112,7 @@ export function readDrawable(r: ResourceReader, ptr: number, opts: DrawableOptio
     bones,
     textures,
     hasExternalTextures,
+    bounds: bounds && (bounds.triangles || bounds.primitives.length) ? bounds : undefined,
   };
 }
 

@@ -3,7 +3,7 @@ import { GtaPreviewProvider } from '../../src/host/previewProvider';
 import { Uri } from './vscode-stub';
 
 const file = process.argv[2];
-const kind = ({ ydr: 'drawable', ydd: 'dictionary', ytyp: 'ytyp', ytd: 'ytd' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
+const kind = ({ ydr: 'drawable', ydd: 'dictionary', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
 let onMessage: (m: unknown) => void = () => {};
 const received: any[] = [];
 const panel = {
@@ -43,6 +43,18 @@ const settle = () => new Promise((r) => setTimeout(r, 50));
     onMessage({ type: 'openAsset', name: y.archetypes[0].name, ext: 'ydr' });
     await settle();
   }
+  if (first.type === 'ymap') {
+    const y = first.ymap;
+    console.log(`ymap: ${y.entities.length} entities, ${y.carGenerators.length} car gens`);
+    const names = [...new Set(y.entities.map((e: any) => e.archetype))] as string[];
+    onMessage({ type: 'loadArchetypes', requestId: 3, archetypes: names.map((name) => ({ name })) });
+    while (!received.some((m) => m.type === 'archetypeModels' && m.done)) await settle();
+    const batches = received.filter((m) => m.type === 'archetypeModels');
+    const defs = Object.assign({}, ...batches.map((m) => m.archetypes));
+    const models = Object.assign({}, ...batches.map((m) => m.models));
+    console.log(`models ${Object.values(models).filter(Boolean).length}/${names.length}, defs ${Object.values(defs).filter(Boolean).length}, interiors: ${Object.values(defs).filter((d: any) => d?.mlo).map((d: any) => `${d.name}(${d.mlo.entities.length})`).join(', ') || 'none'}`);
+  }
+  if (first.type === 'ybn') console.log(`ybn: ${first.bounds.triangles} tris, ${first.bounds.primitives.length} primitives`);
   const errors = received.filter((m) => m.type === 'error');
   if (errors.length) console.log('errors:', errors.map((e) => e.message));
 })();

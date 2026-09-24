@@ -64,6 +64,8 @@ export class Viewer {
     // VS Code theme changes swap body classes.
     new MutationObserver(() => this.applyTheme()).observe(document.body, { attributes: true, attributeFilter: ['class'] });
     this.resize();
+    // Debugging aid: inspect viewers from the webview developer tools.
+    ((window as unknown as { __gtaViewers?: Viewer[] }).__gtaViewers ??= []).push(this);
   }
 
   applyTheme(): void {
@@ -106,7 +108,7 @@ export class Viewer {
   /** Points the camera at `box` (defaults to all content). */
   frame(box?: THREE.Box3): void {
     const b = box ?? new THREE.Box3().setFromObject(this.content);
-    if (b.isEmpty()) return;
+    if (b.isEmpty() || ![...b.min.toArray(), ...b.max.toArray()].every(Number.isFinite)) return;
     this.lastFramed = box ? b.clone() : undefined;
     this.userMoved = false;
     const size = b.getSize(new THREE.Vector3());

@@ -546,3 +546,31 @@ input:focus {
 .cut-slider {
   width: 90px;
 }
+
+.material-row {
+  gap: 6px;
+}
+.material-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.entity-row.nested {
+  padding-left: 28px;
+}
+.sidebar-filter {
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 6px;
+}
+.entity-list {
+  max-height: 50vh;
+  overflow: auto;
+}

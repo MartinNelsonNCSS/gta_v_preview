@@ -1,8 +1,8 @@
 {
   "name": "gta-v-asset-preview",
   "displayName": "GTA V Asset Preview",
-  "description": "Preview GTA V .ydr, .ydd, .ytyp and .ytd files: 3D models with textures, drawable dictionaries, archetypes and MLO interiors. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
-  "version": "0.1.0",
+  "description": "Preview GTA V .ydr, .ydd, .ytyp, .ymap, .ybn and .ytd files: 3D models with textures, drawable dictionaries, archetypes, MLO interiors, maps and collisions. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
+  "version": "0.2.0",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.85.0"
@@ -20,7 +20,9 @@
     "ytyp",
     "ytd",
     "codewalker",
-    "rage"
+    "rage",
+    "ymap",
+    "ybn"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.web.js",
@@ -71,6 +73,26 @@
           }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.ymap",
+        "displayName": "GTA V Map Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.ymap"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.ybn",
+        "displayName": "GTA V Collision Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.ybn"
+          }
+        ],
+        "priority": "default"
       }
     ],
     "configuration": {
@@ -113,7 +135,8 @@
     "inspect": "node esbuild.mjs --tools && node out/inspect.js",
     "package": "npm run typecheck && vsce package --no-dependencies --skip-license --allow-missing-repository",
     "vscode:prepublish": "node esbuild.mjs --production",
-    "hosttest": "esbuild tools/hosttest/run.ts --bundle --platform=node --outfile=out/hosttest.js --alias:vscode=./tools/hosttest/vscode-stub.ts --log-level=warning && node out/hosttest.js"
+    "hosttest": "esbuild tools/hosttest/run.ts --bundle --platform=node --outfile=out/hosttest.js --alias:vscode=./tools/hosttest/vscode-stub.ts --log-level=warning && node out/hosttest.js",
+    "harness": "node esbuild.mjs && node esbuild.mjs --tools && node tools/harness/serve.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",

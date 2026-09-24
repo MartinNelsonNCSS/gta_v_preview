@@ -4,6 +4,8 @@ import { dirname, join } from 'path';
 import { parseYdr, parseYdd } from '../src/formats/drawable';
 import { parseYtd } from '../src/formats/ytd';
 import { parseYtyp } from '../src/formats/ytyp';
+import { parseYmap } from '../src/formats/ymap';
+import { parseYbn } from '../src/formats/bounds';
 import type { DrawableData } from '../src/shared/model';
 
 const opts = { maxSize: 1024 };
@@ -43,6 +45,20 @@ for (const file of process.argv.slice(2).filter((a) => !a.startsWith('-'))) {
     else if (ext === 'ytd') {
       const t = parseYtd(data, opts);
       console.log(`  ${t.length} textures: ${t.map((x) => `${x.name} ${x.width}x${x.height} ${x.format}${x.pixels ? '' : ' (no data)'}`).join(', ')}`);
+    } else if (ext === 'ybn') {
+      const b = parseYbn(data);
+      console.log(`  bb=[${b.bbMin.map((v) => v.toFixed(2))}]..[${b.bbMax.map((v) => v.toFixed(2))}] tris=${b.triangles} prims=${b.primitives.length} types=${JSON.stringify(b.typeCounts)}`);
+      console.log(`  materials: ${b.materials.slice(0, 8).map((m) => `${m.name}(${m.count})`).join(', ')}`);
+      if (verbose) console.log('  first tri', Array.from(b.positions.slice(0, 9)).map((v) => v.toFixed(2)).join(' '), 'prims', JSON.stringify(b.primitives.slice(0, 3)));
+    } else if (ext === 'ymap') {
+      const known: string[] = [];
+      const walk = (d: string, depth: number) => { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.isDirectory() && depth < 3) walk(join(d, e.name), depth + 1); else known.push(e.name.replace(/\.[^.]+$/, '')); } };
+      walk(dirname(dirname(file)), 0);
+      const y = parseYmap(data, { knownNames: known });
+      console.log(`  name=${y.name} parent=${y.parent} flags=${y.flags} content=${y.contentFlags} entities=${y.entities.length} cargens=${y.carGenerators.length} tcm=${y.timecycleModifiers.length} occl=${y.boxOccluders}/${y.occludeModels} grass=${y.grassBatches} lodlights=${y.lodLights} phys=${y.physicsDictionaries.join(',')}`);
+      console.log(`  extents ${JSON.stringify(y.entitiesExtents.map((v) => v.map((x) => +x.toFixed(1))))} block=${JSON.stringify(y.block)}`);
+      for (const e of y.entities.slice(0, verbose ? 1000 : 6)) console.log(`    ${e.isMloInstance ? '[MLO] ' : ''}${e.archetype} pos=${e.position.map((v) => v.toFixed(2))} rot=${e.rotation.map((v) => v.toFixed(3))} lod=${e.lodLevel} parent=${e.parentIndex}`);
+      for (const c of y.carGenerators.slice(0, 3)) console.log(`    cargen ${c.model} pos=${c.position.map((v) => v.toFixed(1))} orient=${c.orientX.toFixed(2)},${c.orientY.toFixed(2)} len=${c.perpendicularLength}`);
     } else if (ext === 'ytyp') {
       const known: string[] = [];
       const walk = (d: string, depth: number) => { for (const e of readdirSync(d, { withFileTypes: true })) { if (e.isDirectory() && depth < 3) walk(join(d, e.name), depth + 1); else known.push(e.name.replace(/\.[^.]+$/, '')); } };

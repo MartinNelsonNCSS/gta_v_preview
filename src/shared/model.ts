@@ -86,6 +86,32 @@ export interface DrawableData {
   textures: TextureData[];
   /** Whether any shader references a texture not embedded in the file. */
   hasExternalTextures: boolean;
+  /** Collision embedded in the drawable, if any. */
+  bounds?: BoundsData;
+}
+
+// ---------------------------------------------------------------------------
+// Collision (.ybn, or embedded in drawables)
+// ---------------------------------------------------------------------------
+
+export type CollisionPrimitive =
+  | { kind: 'sphere'; material: number; center: Vec3; radius: number }
+  | { kind: 'box'; material: number; center: Vec3; /** Half-extent vectors. */ axes: [Vec3, Vec3, Vec3] }
+  | { kind: 'capsule' | 'cylinder'; material: number; a: Vec3; b: Vec3; radius: number };
+
+export interface BoundsData {
+  bbMin: Vec3;
+  bbMax: Vec3;
+  triangles: number;
+  /** Non-indexed triangle soup, 9 floats per triangle. */
+  positions: Float32Array;
+  /** Material type index per triangle. */
+  triangleMaterials: Uint8Array;
+  primitives: CollisionPrimitive[];
+  /** Number of bounds of each kind (composite, bvh, box, ...). */
+  typeCounts: Record<string, number>;
+  /** Materials used, most frequent first (polygon/primitive counts). */
+  materials: { index: number; name: string; count: number }[];
 }
 
 // ---------------------------------------------------------------------------
@@ -101,6 +127,12 @@ export interface EntityData {
   flags: number;
   room?: string;
   entitySet?: string;
+  guid?: number;
+  /** e.g. LODTYPES_DEPTH_HD (ymap entities). */
+  lodLevel?: string;
+  parentIndex?: number;
+  /** True for CMloInstanceDef: an interior placed in the world. */
+  isMloInstance?: boolean;
 }
 
 export interface RoomData {
@@ -143,6 +175,36 @@ export interface ArchetypeData {
   };
 }
 
+export interface CarGenData {
+  position: Vec3;
+  orientX: number;
+  orientY: number;
+  perpendicularLength: number;
+  model: string;
+  flags: number;
+  popGroup: string;
+  livery: number;
+}
+
+export interface YmapData {
+  name: string;
+  parent: string;
+  flags: number;
+  contentFlags: number;
+  streamingExtents: [Vec3, Vec3];
+  entitiesExtents: [Vec3, Vec3];
+  entities: EntityData[];
+  carGenerators: CarGenData[];
+  timecycleModifiers: { name: string; min: Vec3; max: Vec3 }[];
+  physicsDictionaries: string[];
+  boxOccluders: number;
+  occludeModels: number;
+  grassBatches: number;
+  lodLights: number;
+  block?: { name: string; exportedBy: string; owner: string; time: string };
+  raw: unknown;
+}
+
 export interface YtypData {
   name: string;
   archetypes: ArchetypeData[];
@@ -155,7 +217,7 @@ export interface YtypData {
 // Messages
 // ---------------------------------------------------------------------------
 
-export type ViewKind = 'drawable' | 'dictionary' | 'ytyp' | 'ytd';
+export type ViewKind = 'drawable' | 'dictionary' | 'ytyp' | 'ytd' | 'ymap' | 'ybn';
 
 export interface ArchetypeRequest {
   /** Archetype name (may be an unresolved `hash_XXXXXXXX`). */
@@ -168,12 +230,16 @@ export type HostToWebview =
   | { type: 'drawables'; file: string; kind: 'drawable' | 'dictionary'; drawables: DrawableData[] }
   | { type: 'ytyp'; file: string; ytyp: YtypData }
   | { type: 'ytd'; file: string; textures: TextureData[] }
+  | { type: 'ymap'; file: string; ymap: YmapData }
+  | { type: 'ybn'; file: string; bounds: BoundsData }
   | { type: 'textures'; requestId: number; textures: TextureData[]; source: string; searched: number; done: boolean }
   | {
       type: 'archetypeModels';
       requestId: number;
       /** Keyed by the requested archetype name; null when no model file was found. */
       models: Record<string, DrawableData | null>;
+      /** Archetype definitions found in nearby .ytyp files (includes MLO layouts). */
+      archetypes: Record<string, ArchetypeData | null>;
       done: boolean;
     }
   | { type: 'error'; message: string }

@@ -3,6 +3,8 @@ import { errorView, h, onHostMessage, vscode } from './ui';
 import { ModelPanel } from './views/modelPanel';
 import { ytdView } from './views/ytdView';
 import { ytypView } from './views/ytypView';
+import { ybnView } from './views/ybnView';
+import { ymapView } from './views/ymapView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
@@ -30,6 +32,12 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'ytyp':
       show(ytypView(m.file, m.ytyp));
+      break;
+    case 'ymap':
+      show(ymapView(m.file, m.ymap));
+      break;
+    case 'ybn':
+      show(ybnView(m.file, m.bounds));
       break;
     case 'error':
       if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message));
