@@ -69,22 +69,48 @@ export const META_NAMES = [
   'rage__fwGrassInstanceListDef__InstanceData', 'Position', 'NormalX', 'NormalY', 'Color', 'Scale', 'Ao', 'Pad',
   'rage__spdAABB', 'min', 'max', 'CLODLight', 'direction', 'timeAndStateFlags', 'hash', 'coneOuterAngleOrCapExt',
   'CDistantLODLight', 'RGBI', 'numStreetLights', 'category', 'rage__fwPropInstanceListDef',
+  // .ymt (ped variation)
+  'CPedVariationInfo', 'bHasTexVariations', 'bHasDrawblVariations', 'bHasLowLODs', 'bIsSuperLOD', 'availComp',
+  'aComponentData3', 'aSelectionSets', 'compInfos', 'propInfo', 'dlcName', 'CPVComponentData', 'numAvailTex',
+  'aDrawblData3', 'CPVDrawblData', 'propMask', 'numAlternatives', 'aTexData', 'clothData',
+  'CPVDrawblData__CPVClothComponentData', 'ownsCloth', 'CPVTextureData', 'texId', 'distribution', 'CComponentInfo',
+  'inclusions', 'exclusions', 'pedXml_vfxComps', 'pedXml_flags', 'pedXml_compIdx', 'pedXml_drawblIdx',
+  'pedXml_audioID', 'pedXml_audioID2', 'pedXml_expressionMods', 'CPedPropInfo', 'numAvailProps', 'aPropMetaData',
+  'aAnchors', 'CPedPropMetaData', 'audioId', 'expressionMods', 'texData', 'renderFlags', 'propFlags', 'anchorId',
+  'propId', 'stickyness', 'CPedPropTexData', 'inclusionId', 'exclusionId', 'CAnchorProps', 'props', 'anchor',
+  'CPedSelectionSet', 'compDrawableId', 'compTexId', 'propAnchorId', 'propDrawableId', 'propTexId', 'ePedVarComp',
+  'PV_COMP_HEAD', 'PV_COMP_BERD', 'PV_COMP_HAIR', 'PV_COMP_UPPR', 'PV_COMP_LOWR', 'PV_COMP_HAND', 'PV_COMP_FEET',
+  'PV_COMP_TEEF', 'PV_COMP_ACCS', 'PV_COMP_TASK', 'PV_COMP_DECL', 'PV_COMP_JBIB', 'PV_COMP_MAX', 'eAnchorPoints',
+  'ANCHOR_HEAD', 'ANCHOR_EYES', 'ANCHOR_EARS', 'ANCHOR_MOUTH', 'ANCHOR_LEFT_HAND', 'ANCHOR_RIGHT_HAND',
+  'ANCHOR_LEFT_WRIST', 'ANCHOR_RIGHT_WRIST', 'ANCHOR_HIP', 'ANCHOR_LEFT_FOOT', 'ANCHOR_RIGHT_FOOT',
+  'ANCHOR_PH_L_HAND', 'ANCHOR_PH_R_HAND', 'NUM_ANCHORS', 'ePropRenderFlags', 'PRF_ALPHA', 'PRF_DECAL', 'PRF_CUTOUT',
+  'ePedCompFlags', 'eDrawableFlags',
+  // .ymt (scenarios, common roots)
+  'CScenarioPointRegion', 'VersionNumber', 'Points', 'EntityOverrides', 'ClusterPoints', 'LookUps', 'Clusters',
+  'AccelGrid', 'Chains', 'CScenarioPointContainer', 'LoadSavePoints', 'MyPoints', 'CExtensionDefSpawnPoint',
+  'CScenarioPoint', 'CScenarioEntityOverride', 'CScenarioChainingGraph', 'Nodes', 'Edges', 'ChainingEdges',
+  'CScenarioChainingNode', 'CScenarioChainingEdge', 'CScenarioPointLookUps', 'TypeNames', 'PedModelSetNames',
+  'VehicleModelSetNames', 'GroupNames', 'InteriorNames', 'RequiredIMapNames', 'rage__spdGrid2D', 'MinCellX',
+  'MaxCellX', 'MinCellY', 'MaxCellY', 'CellDimX', 'CellDimY', 'CScenarioPointCluster', 'Points', 'ClusterSphere',
+  'fNextSpawnAttemptDelay', 'bAllPointsRequiredForSpawn', 'iType', 'ModelSetId', 'iInterior', 'iRequiredIMapId',
+  'iProbability', 'uAvailableInMpSp', 'iTimeStartOverride', 'iTimeEndOverride', 'iRadius', 'iTimeTillPedLeaves',
+  'iScenarioGroup', 'Flags', 'vPositionAndDirection',
 ];
 
 
-/** Decodes an RSC7 meta file and checks its root structure type. */
-export function readMeta(file: Uint8Array, rootType: string, knownNames?: Iterable<string>): { root: MetaObject; doc: MetaDocument } {
+/** Decodes an RSC7 meta file and (optionally) checks its root structure type. */
+export function readMeta(file: Uint8Array, rootType: string | undefined, knownNames?: Iterable<string>): { root: MetaObject; doc: MetaDocument } {
   if (file[0] === 0x3c /* '<' */) {
     throw new ResourceError('This file is XML; open it as text (XML previews are not supported yet).');
   }
   if (file[0] === 0x50 && file[1] === 0x53 && file[2] === 0x49 && file[3] === 0x4e) {
-    throw new ResourceError('PSO-format meta files are not supported yet.');
+    throw new ResourceError('This is a PSO-format (binary "PSIN") file, which is not supported yet. RSC7 and XML files are.');
   }
   const names = new HashNames(META_NAMES);
   if (knownNames) names.addAll(knownNames);
   const doc = new MetaDocument(new ResourceReader(readRsc7(file)), names);
   const root = doc.decodeRoot();
-  if (!root || root._type !== rootType) {
+  if (!root || (rootType && root._type !== rootType)) {
     throw new ResourceError(`Unexpected meta root type: ${root?._type ?? 'none'} (expected ${rootType})`);
   }
   return { root, doc };

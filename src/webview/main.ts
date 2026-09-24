@@ -5,6 +5,7 @@ import { ytdView } from './views/ytdView';
 import { ytypView } from './views/ytypView';
 import { ybnView } from './views/ybnView';
 import { ymapView } from './views/ymapView';
+import { textView, ymtView } from './views/ymtView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
@@ -38,6 +39,12 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'ybn':
       show(ybnView(m.file, m.bounds));
+      break;
+    case 'ymt':
+      show(ymtView(m.file, m.ymt, m.files));
+      break;
+    case 'text':
+      show(textView(m.file, m.text, m.note));
       break;
     case 'error':
       if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message));

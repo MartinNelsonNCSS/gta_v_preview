@@ -8,7 +8,7 @@ import { ROOT, Uri } from './vscode-stub';
 
 const file = new URLSearchParams(location.search).get('file') ?? '';
 const ext = file.split('.').pop()!.toLowerCase();
-const KINDS: Record<string, ViewKind> = { ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn' };
+const KINDS: Record<string, ViewKind> = { ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt' };
 
 let toHost: (m: WebviewToHost) => void = () => {};
 const panel = {

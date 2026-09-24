@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.0
+
+- `.ymt` preview: ped variation browser (components, props, texture variations, 3D preview with the variation applied); raw tree for other RSC7 meta files.
+- XML `.ytyp`/`.ymap`/`.ymt` files show their text with an "Open as text" button instead of an error.
+- Clear message for PSO-format meta files.
+
 ## 0.3.0
 
 - `.yft` preview: fragments (vehicles, breakable props, liveries) with the main, damaged and extra drawables.

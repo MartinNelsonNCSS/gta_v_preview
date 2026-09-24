@@ -6,7 +6,7 @@ import { join, extname, relative, resolve } from 'path';
 const root = resolve(process.argv[2] ?? '.');
 const port = Number(process.argv[3] ?? 5178);
 const repo = resolve(new URL('../..', import.meta.url).pathname);
-const EXTS = ['.ydr', '.ydd', '.ytyp', '.ytd', '.yft', '.ybn', '.ymap'];
+const EXTS = ['.ydr', '.ydd', '.ytyp', '.ytd', '.yft', '.ybn', '.ymap', '.ymt'];
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.map': 'application/json' };
 
 async function walk(dir, out = []) {
@@ -28,7 +28,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/') {
       const file = url.searchParams.get('file');
       if (file) return res.writeHead(200, { 'content-type': 'text/html' }).end(page(file));
-      const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn)$/i.test(f));
+      const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn|ymt)$/i.test(f));
       return res.writeHead(200, { 'content-type': 'text/html' }).end(
         `<body style="font:13px sans-serif;background:#1e1e1e;color:#ccc">${files.map((f) => `<div><a style="color:#4fc3f7" href="/?file=${encodeURIComponent(f)}">${f}</a></div>`).join('')}</body>`
       );

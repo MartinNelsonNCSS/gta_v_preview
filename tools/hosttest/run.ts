@@ -3,7 +3,7 @@ import { GtaPreviewProvider } from '../../src/host/previewProvider';
 import { Uri } from './vscode-stub';
 
 const file = process.argv[2];
-const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
+const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
 let onMessage: (m: unknown) => void = () => {};
 const received: any[] = [];
 const panel = {
@@ -54,6 +54,21 @@ const settle = () => new Promise((r) => setTimeout(r, 50));
     const models = Object.assign({}, ...batches.map((m) => m.models));
     console.log(`models ${Object.values(models).filter(Boolean).length}/${names.length}, defs ${Object.values(defs).filter(Boolean).length}, interiors: ${Object.values(defs).filter((d: any) => d?.mlo).map((d: any) => `${d.name}(${d.mlo.entities.length})`).join(', ') || 'none'}`);
   }
+  if (first.type === 'ymt') {
+    const ped = first.ymt.pedVariation;
+    console.log(`ymt root=${first.ymt.rootType} files=${first.files.length}` + (ped ? ` components=${ped.components.map((c: any) => `${c.key}:${c.drawables.length}`).join(',')} props=${ped.props.length}` : ''));
+    if (ped) {
+      const d = ped.components[0].drawables[0];
+      const prefix = file.split('/').pop()!.replace(/\.ymt$/i, '').toLowerCase();
+      onMessage({ type: 'loadTextureFile', requestId: 4, name: `${prefix}^${d.textures[0].file}` });
+      onMessage({ type: 'loadDrawableFile', requestId: 5, name: `${prefix}^${d.file}` });
+      while (!received.some((m) => m.type === 'textureFile') || !received.some((m) => m.type === 'drawableFile')) await settle();
+      const t = received.find((m) => m.type === 'textureFile');
+      const m = received.find((m) => m.type === 'drawableFile');
+      console.log(`variation texture: ${t.textures.map((x: any) => `${x.name} ${x.width}x${x.height}`).join(', ') || t.error}; model: ${m.drawables.length ? m.drawables.map((x: any) => x.name).join(', ') : m.error}`);
+    }
+  }
+  if (first.type === 'text') console.log(`text view: ${first.note}`);
   if (first.type === 'ybn') console.log(`ybn: ${first.bounds.triangles} tris, ${first.bounds.primitives.length} primitives`);
   const errors = received.filter((m) => m.type === 'error');
   if (errors.length) console.log('errors:', errors.map((e) => e.message));

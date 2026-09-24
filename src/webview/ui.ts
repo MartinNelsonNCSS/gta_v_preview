@@ -27,6 +27,24 @@ export function newRequestId(): number {
   return nextRequestId++;
 }
 
+type Reply<T extends HostToWebview['type']> = Extract<HostToWebview, { type: T; requestId: number }>;
+
+/** Sends a request and resolves with the host's single reply of type `reply`. */
+export function hostRequest<T extends HostToWebview['type']>(
+  message: Extract<WebviewToHost, { requestId: number }>,
+  reply: T
+): Promise<Reply<T>> {
+  return new Promise((resolve) => {
+    const off = onHostMessage((m) => {
+      if (m.type === reply && (m as { requestId?: number }).requestId === message.requestId) {
+        off();
+        resolve(m as Reply<T>);
+      }
+    });
+    vscode.postMessage(message);
+  });
+}
+
 /** Persisted per-editor UI preferences (toggles etc). */
 export function pref<T>(key: string, fallback: T): T {
   const v = vscode.getState()?.[key];

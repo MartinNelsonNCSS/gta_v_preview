@@ -207,6 +207,39 @@ export interface YmapData {
   raw: unknown;
 }
 
+export interface PedDrawable {
+  index: number;
+  /** Expected model file name without prefix/extension, e.g. `jbib_004_u` or `p_head_002`. */
+  file: string;
+  /** Texture variations; `file` is the expected .ytd name, e.g. `jbib_diff_004_a_uni`. */
+  textures: { letter: string; file: string }[];
+  cloth: boolean;
+  alternatives: number;
+}
+
+export interface PedSlot {
+  slot: number;
+  /** File-name key, e.g. `jbib` or `p_head`. */
+  key: string;
+  label: string;
+  drawables: PedDrawable[];
+}
+
+export interface PedVariationData {
+  dlcName: string;
+  hasLowLods: boolean;
+  components: PedSlot[];
+  props: PedSlot[];
+  selectionSets: number;
+}
+
+export interface YmtData {
+  name: string;
+  rootType: string;
+  pedVariation?: PedVariationData;
+  raw: unknown;
+}
+
 export interface YtypData {
   name: string;
   archetypes: ArchetypeData[];
@@ -219,7 +252,7 @@ export interface YtypData {
 // Messages
 // ---------------------------------------------------------------------------
 
-export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn';
+export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn' | 'ymt';
 
 export interface ArchetypeRequest {
   /** Archetype name (may be an unresolved `hash_XXXXXXXX`). */
@@ -234,6 +267,16 @@ export type HostToWebview =
   | { type: 'ytd'; file: string; textures: TextureData[] }
   | { type: 'ymap'; file: string; ymap: YmapData }
   | { type: 'ybn'; file: string; bounds: BoundsData }
+  | {
+      type: 'ymt';
+      file: string;
+      ymt: YmtData;
+      /** Lower-case base names of model/texture files in the .ymt's folder tree. */
+      files: string[];
+    }
+  | { type: 'text'; file: string; text: string; note: string }
+  | { type: 'drawableFile'; requestId: number; drawables: DrawableData[]; error?: string }
+  | { type: 'textureFile'; requestId: number; textures: TextureData[]; error?: string }
   | { type: 'textures'; requestId: number; textures: TextureData[]; source: string; searched: number; done: boolean }
   | {
       type: 'archetypeModels';
@@ -251,4 +294,9 @@ export type WebviewToHost =
   | { type: 'ready' }
   | { type: 'findTextures'; requestId: number; names: string[]; hints: string[]; maxSize?: number }
   | { type: 'loadArchetypes'; requestId: number; archetypes: ArchetypeRequest[]; maxTextureSize?: number }
-  | { type: 'openAsset'; name: string; ext: 'ydr' | 'ydd' | 'yft' | 'ytd' };
+  | { type: 'openAsset'; name: string; ext: 'ydr' | 'ydd' | 'yft' | 'ytd' }
+  /** Loads every drawable in a model file found by base name (any of .ydd/.ydr/.yft). */
+  | { type: 'loadDrawableFile'; requestId: number; name: string; maxTextureSize?: number }
+  /** Loads every texture in a .ytd found by base name. */
+  | { type: 'loadTextureFile'; requestId: number; name: string; maxSize?: number }
+  | { type: 'openAsText' };

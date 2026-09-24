@@ -9,6 +9,7 @@ Preview Grand Theft Auto V resource files directly in VS Code:
 | `.yft`  | Fragments (vehicles, breakable props, liveries): the main model plus damaged/extra drawables          |
 | `.ytyp` | Archetype table with live model preview, **MLO interiors assembled in 3D**, and a raw meta tree       |
 | `.ymap` | Map entities placed in the world, **MLO instances expanded**, car generators, extents, raw meta tree |
+| `.ymt`  | Ped variation (clothing/addon peds): browse components & props, texture variations, 3D preview; raw tree for other meta |
 | `.ybn`  | Collision viewer: meshes and primitives colour-coded by material, per-material filter, click to identify |
 | `.ytd`  | Texture gallery with a full-size viewer (RGB / alpha channels)                                        |
 
@@ -18,7 +19,7 @@ Remote/WSL, and in vscode.dev.
 
 ## Usage
 
-Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ybn` or `.ytd` file. The preview opens automatically.
+Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file. The preview opens automatically.
 
 - **Orbit**: left-drag. **Pan**: right-drag or shift-drag. **Zoom**: scroll.
 - **Cut** slider: hides everything above a height, which helps when looking into interiors.
@@ -34,6 +35,11 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ybn` or `.ytd` file. The pr
 - **Collision**: `.ybn` files and collision embedded in drawables (the **Collision** toggle) are coloured by
   material. Click a surface to see its material. Material names follow the standard `materials.dat` order;
   the numeric index is shown alongside for cross-checking.
+- **Ped clothing (`.ymt`)**: lists every component (masks, torsos, legs, tops, ...) and prop (hats, glasses, watches, ...)
+  with its texture variations, using the files next to the `.ymt` (streamed `ped^jbib_000_u.ydd` or plain `jbib_000_u.ydd`
+  names). Pick a drawable to see its model with the selected variation's texture applied; dots show whether each
+  model file exists. Encrypted (escrow) models still show their texture variations.
+- **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
 ## Settings
@@ -46,7 +52,7 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ybn` or `.ytd` file. The pr
 ## Limitations
 
 - **FiveM escrow (`FXAP`) files are encrypted** and can't be previewed. The editor says so when you open one.
-- Gen9 / Enhanced-edition (`RSC8`) resources and XML exports (`.ytyp.xml`) aren't supported yet.
+- Gen9 / Enhanced-edition (`RSC8`) resources and PSO-format (binary `PSIN`) `.ymt` files aren't supported yet.
 - `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is drawn as neutral grey and
   shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.

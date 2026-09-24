@@ -6,6 +6,7 @@ import { parseYtyp } from '../formats/ytyp';
 import { parseYmap } from '../formats/ymap';
 import { parseYbn } from '../formats/bounds';
 import { parseYft } from '../formats/yft';
+import { parseYmt } from '../formats/ymt';
 import type {
   ArchetypeData,
   ArchetypeRequest,
@@ -25,7 +26,11 @@ export const VIEW_TYPES: Record<ViewKind, string> = {
   ytd: 'gtaPreview.ytd',
   ymap: 'gtaPreview.ymap',
   ybn: 'gtaPreview.ybn',
+  ymt: 'gtaPreview.ymt',
 };
+
+/** Meta formats that also exist as XML (CodeWalker/Sollumz exports, hand-edited files). */
+const META_KINDS: ViewKind[] = ['ytyp', 'ymap', 'ymt'];
 
 /** Texture names per .ytd, keyed by URI and invalidated by mtime. */
 const ytdNameCache = new Map<string, { mtime: number; names: Set<string> }>();
@@ -142,6 +147,15 @@ class PreviewSession {
         case 'openAsset':
           await this.openAsset(message.name, message.ext);
           break;
+        case 'loadDrawableFile':
+          await this.loadDrawableFile(message.requestId, message.name, message.maxTextureSize);
+          break;
+        case 'loadTextureFile':
+          await this.loadTextureFile(message.requestId, message.name, message.maxSize);
+          break;
+        case 'openAsText':
+          await vscode.commands.executeCommand('vscode.openWith', this.uri, 'default');
+          break;
       }
     } catch (err) {
       this.post({ type: 'error', message: (err as Error).message });
@@ -158,6 +172,15 @@ class PreviewSession {
       return;
     }
     const maxSize = config('maxTextureSize', 1024);
+    if (META_KINDS.includes(this.kind) && looksLikeXml(data)) {
+      this.post({
+        type: 'text',
+        file,
+        text: new TextDecoder().decode(data.subarray(0, 512 * 1024)),
+        note: 'This file is XML rather than a binary resource.',
+      });
+      return;
+    }
     try {
       switch (this.kind) {
         case 'drawable':
@@ -182,6 +205,15 @@ class PreviewSession {
         case 'ybn':
           this.post({ type: 'ybn', file, bounds: parseYbn(data) });
           break;
+        case 'ymt': {
+          // Ped variation files describe models/textures that sit next to them.
+          const dir = dirname(this.uri).path.toLowerCase() + '/';
+          const files = (await this.index.all())
+            .filter((f) => ['ydd', 'ydr', 'yft', 'ytd'].includes(f.ext) && f.uri.path.toLowerCase().startsWith(dir))
+            .map((f) => `${f.base}.${f.ext}`);
+          this.post({ type: 'ymt', file, ymt: parseYmt(data, { knownNames: await this.knownNames() }), files });
+          break;
+        }
       }
     } catch (err) {
       this.post({ type: 'error', message: (err as Error).message });
@@ -329,6 +361,40 @@ class PreviewSession {
     return null;
   }
 
+  /** Loads all drawables from a model file located by base name (e.g. a ped component .ydd). */
+  private async loadDrawableFile(requestId: number, name: string, maxTextureSize?: number): Promise<void> {
+    const opts = { maxSize: Math.min(maxTextureSize ?? Infinity, config('maxTextureSize', 1024)) };
+    const base = name.toLowerCase();
+    const candidates = (await this.index.all()).filter((f) => f.base === base && ['ydd', 'ydr', 'yft'].includes(f.ext));
+    const file = candidates.sort((a, b) => ['ydd', 'ydr', 'yft'].indexOf(a.ext) - ['ydd', 'ydr', 'yft'].indexOf(b.ext))[0];
+    if (!file) {
+      this.post({ type: 'drawableFile', requestId, drawables: [], error: `${name} was not found.` });
+      return;
+    }
+    try {
+      const data = await vscode.workspace.fs.readFile(file.uri);
+      const drawables = file.ext === 'ydd' ? parseYdd(data, opts) : file.ext === 'yft' ? parseYft(data, opts) : [parseYdr(data, opts)];
+      this.post({ type: 'drawableFile', requestId, drawables });
+    } catch (err) {
+      this.post({ type: 'drawableFile', requestId, drawables: [], error: (err as Error).message });
+    }
+  }
+
+  private async loadTextureFile(requestId: number, name: string, maxSize?: number): Promise<void> {
+    const opts = { maxSize: Math.min(maxSize ?? Infinity, config('maxTextureSize', 1024)) };
+    const base = name.toLowerCase();
+    const file = (await this.index.byExt('ytd')).find((f) => f.base === base);
+    if (!file) {
+      this.post({ type: 'textureFile', requestId, textures: [], error: `${name}.ytd was not found.` });
+      return;
+    }
+    try {
+      this.post({ type: 'textureFile', requestId, textures: parseYtd(await vscode.workspace.fs.readFile(file.uri), opts) });
+    } catch (err) {
+      this.post({ type: 'textureFile', requestId, textures: [], error: (err as Error).message });
+    }
+  }
+
   private async openAsset(name: string, ext: 'ydr' | 'ydd' | 'yft' | 'ytd'): Promise<void> {
     const hash = nameToHash(name);
     const file = (await this.index.byExt(ext)).find((f) => f.hash === hash);
@@ -339,6 +405,12 @@ class PreviewSession {
     const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytd: 'ytd' } as const)[ext];
     await vscode.commands.executeCommand('vscode.openWith', file.uri, VIEW_TYPES[kind]);
   }
+}
+
+function looksLikeXml(data: Uint8Array): boolean {
+  let i = data[0] === 0xef && data[1] === 0xbb && data[2] === 0xbf ? 3 : 0; // UTF-8 BOM
+  while (i < data.length && (data[i] === 0x20 || data[i] === 0x09 || data[i] === 0x0a || data[i] === 0x0d)) i++;
+  return data[i] === 0x3c; // '<'
 }
 
 /** Accepts a plain name or an unresolved `hash_XXXXXXXX` placeholder. */

@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import type { DrawableData, LodLevel } from '../../shared/model';
+import type { DrawableData, LodLevel, ShaderData, TextureData } from '../../shared/model';
 import { LOD_LEVELS } from '../../shared/model';
 import {
   applyRenderOptions,
@@ -67,6 +67,8 @@ export interface ModelPanelOptions {
   /** Texture dictionary names to search first (e.g. from a .ytyp archetype). */
   textureHints?: string[];
   sidebar?: boolean;
+  /** Search nearby .ytd files for textures the model doesn't embed (default true). */
+  searchTextures?: boolean;
 }
 
 /** Toolbar + 3D view + info sidebar for one or more drawables. */
@@ -83,6 +85,8 @@ export class ModelPanel {
   private opts = renderOptions();
   private bounds?: THREE.Object3D;
   private collision?: THREE.Object3D;
+  /** Texture key that replaces the diffuse of variation-driven shaders (ped clothing). */
+  private variationKey?: string;
   private offStore: () => void;
 
   constructor(private readonly options: ModelPanelOptions = {}) {
@@ -105,16 +109,26 @@ export class ModelPanel {
     });
   }
 
-  setDrawables(drawables: DrawableData[]): void {
+  setDrawables(drawables: DrawableData[], keepCamera = false): void {
     this.drawables = drawables;
     this.current = Math.min(this.current, Math.max(0, drawables.length - 1));
     for (const d of drawables) this.store.add(d.textures, 'embedded');
     this.renderToolbar();
-    this.show(true);
+    this.show(!keepCamera);
     // Fetch every referenced texture (not just diffuse) so the sidebar can show them all.
     const names = drawables.flatMap((d) => d.shaders.flatMap((s) => s.textures.map((t) => t.texture)));
     const hints = [...(this.options.textureHints ?? []), ...drawables.map((d) => d.name)];
-    void fetchTextures(this.store, names, hints, (s) => this.setStatus(s));
+    if (this.options.searchTextures !== false) void fetchTextures(this.store, names, hints, (s) => this.setStatus(s));
+  }
+
+  /**
+   * Uses `texture` as the diffuse for the drawable's clothing shaders, the way
+   * the game applies a ped variation's .ytd. Pass undefined to restore.
+   */
+  setVariationTexture(texture: TextureData | undefined, source = 'variation'): void {
+    this.variationKey = texture ? `__variation__/${source}/${texture.name}`.toLowerCase() : undefined;
+    if (texture && this.variationKey) this.store.add([{ ...texture, name: this.variationKey }], source);
+    if (this.drawable) this.show(false);
   }
 
   setTextureHints(hints: string[]): void {
@@ -144,7 +158,7 @@ export class ModelPanel {
     }
     this.lod = availableLod(d, this.lod);
     this.store.unbindAll();
-    this.viewer.setContent(buildDrawable(d, this.lod, this.store, this.opts));
+    this.viewer.setContent(buildDrawable(this.withVariation(d), this.lod, this.store, this.opts));
     this.bounds = boxHelper(d.bbMin, d.bbMax, 0xffc107);
     this.bounds.visible = pref('bounds', false);
     this.viewer.overlay.add(this.bounds);
@@ -156,6 +170,15 @@ export class ModelPanel {
     if (frame) this.viewer.frame();
     this.renderToolbar();
     this.renderSidebar();
+  }
+
+  /** Applies the variation texture to shaders that take their colour from a variation .ytd. */
+  private withVariation(d: DrawableData): DrawableData {
+    const key = this.variationKey;
+    if (!key) return d;
+    const isVariation = (s: ShaderData) => !!s.diffuse && /_diff_\d{3}/.test(s.diffuse);
+    const targets = d.shaders.some(isVariation) ? isVariation : (s: ShaderData) => !!s.diffuse;
+    return { ...d, shaders: d.shaders.map((s) => (targets(s) ? { ...s, diffuse: key, diffuseIsOverlay: false } : s)) };
   }
 
   private renderToolbar(): void {
@@ -298,7 +321,7 @@ export class ModelPanel {
               onclick: () => openLightbox(data, source === 'embedded' ? 'embedded' : source),
             },
             h('div', { class: 'checker thumb-image' }, textureCanvas(data, 96)),
-            h('div', { class: 'thumb-name' }, data.name)
+            h('div', { class: 'thumb-name' }, data.name.replace(/^__variation__\/[^/]*\//, ''))
           )
         )
       )

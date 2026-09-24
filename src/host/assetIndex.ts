@@ -3,7 +3,7 @@ import { joaat } from '../formats/hash';
 
 export type SearchScope = 'workspace' | 'folder' | 'off';
 
-const ASSET_EXTENSIONS = ['ytd', 'ydr', 'ydd', 'yft', 'ybn', 'ytyp', 'ymap'];
+const ASSET_EXTENSIONS = ['ytd', 'ydr', 'ydd', 'yft', 'ybn', 'ytyp', 'ymap', 'ymt'];
 const MAX_WALK_ENTRIES = 5000;
 const CACHE_TTL_MS = 30_000;
 
