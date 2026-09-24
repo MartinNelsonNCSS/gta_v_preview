@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.1
+
+- Licensed under the PolyForm Noncommercial License 1.0.0.
+- The extension package now includes the license and third-party notices (three.js, fflate).
+- README: license summary, disclaimer and credits.
+
 ## 0.4.0
 
 - `.ymt` preview: ped variation browser (components, props, texture variations, 3D preview with the variation applied); raw tree for other RSC7 meta files.
