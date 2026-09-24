@@ -93,13 +93,12 @@ tools/          CLI inspector and browser harness
 
 Copyright (c) 2026 Martin J Nelson III.
 
-This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). In short: you're free to use,
-study, modify and share it, including publishing your own modified versions, for any **noncommercial** purpose.
-You may not sell it or use it commercially. Read the [license](LICENSE) for the exact terms.
+This project is free and open-source software, licensed under the
+[GNU General Public License v3.0](LICENSE) (GPL-3.0-only). In short: you can use, study, modify and share it. If
+you distribute it, or a modified version, you must make the full source code available under the same license
+and keep the copyright and license notices.
 
-It is *source-available* rather than OSI "open source", because OSI licenses can't restrict commercial use.
-
-Bundled third-party libraries (three.js, fflate) keep their own MIT licenses; see
+Bundled third-party libraries (three.js, fflate) keep their own MIT licenses, which are compatible with the GPL; see
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 ## Disclaimer

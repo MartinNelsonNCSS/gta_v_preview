@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.4.2
+
+- Relicensed under the GNU General Public License v3.0 (GPL-3.0-only).
+
 ## 0.4.1
 
 - Licensed under the PolyForm Noncommercial License 1.0.0.

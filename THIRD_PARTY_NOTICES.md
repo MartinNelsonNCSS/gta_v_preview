@@ -1,7 +1,7 @@
 # Third-party notices
 
 The packaged extension (`.vsix`) bundles the following open-source libraries. Their licenses apply to their code
-only; the rest of this project is licensed under the PolyForm Noncommercial License 1.0.0 (see `LICENSE`).
+only; the rest of this project is licensed under the GNU General Public License v3.0 (see `LICENSE`).
 
 ## three.js
 
