@@ -76,7 +76,7 @@ Other tools:
   (with a stubbed `vscode` module) at <http://localhost:5178>. This makes UI work fast to iterate on.
 - `npm run hosttest -- path/to/file.ytyp` runs the real extension-host code under Node (with a stubbed `vscode`
   module) and reports what it would send to the webview: texture search results, MLO models found, etc.
-- `npm run package` builds a `.vsix`. Set `publisher` in `package.json` first.
+- `npm run package` builds a `.vsix`. To publish to the Marketplace, set `publisher` in `package.json` to your publisher ID.
 
 ### Layout
 
@@ -88,4 +88,26 @@ src/shared/     Message and data types shared by host and webview
 tools/          CLI inspector and browser harness
 ```
 
-Format knowledge is based on the community's reverse-engineering work, notably CodeWalker and Sollumz.
+
+## License
+
+Copyright (c) 2026 Martin J Nelson III.
+
+This project is licensed under the [PolyForm Noncommercial License 1.0.0](LICENSE). In short: you're free to use,
+study, modify and share it, including publishing your own modified versions, for any **noncommercial** purpose.
+You may not sell it or use it commercially. Read the [license](LICENSE) for the exact terms.
+
+It is *source-available* rather than OSI "open source", because OSI licenses can't restrict commercial use.
+
+Bundled third-party libraries (three.js, fflate) keep their own MIT licenses; see
+[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+
+## Disclaimer
+
+This is an unofficial, fan-made tool. It is not affiliated with, endorsed by, or associated with Rockstar Games or
+Take-Two Interactive. *Grand Theft Auto* and *GTA* are trademarks of Take-Two Interactive Software, Inc. No game
+assets are included in this repository or the extension; it only reads files you already have.
+
+The file-format knowledge used here comes from the modding community's public reverse-engineering work, notably
+[CodeWalker](https://github.com/dexyfex/CodeWalker) and [Sollumz](https://github.com/Sollumz/Sollumz). All code in
+this repository was written independently.

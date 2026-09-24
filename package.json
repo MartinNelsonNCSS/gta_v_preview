@@ -4,6 +4,15 @@
   "description": "Preview GTA V .ydr, .ydd, .yft, .ytyp, .ymap, .ymt, .ybn and .ytd files: 3D models with textures, drawable dictionaries, vehicles/fragments, archetypes, MLO interiors, maps, ped clothing and collisions. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
   "version": "0.4.0",
   "publisher": "local-dev",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MartinNelsonNCSS/gta_v_preview.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MartinNelsonNCSS/gta_v_preview/issues"
+  },
+  "homepage": "https://github.com/MartinNelsonNCSS/gta_v_preview#readme",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -155,7 +164,7 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "inspect": "node esbuild.mjs --tools && node out/inspect.js",
-    "package": "npm run typecheck && vsce package --no-dependencies --skip-license --allow-missing-repository",
+    "package": "npm run typecheck && vsce package --no-dependencies",
     "vscode:prepublish": "node esbuild.mjs --production",
     "hosttest": "esbuild tools/hosttest/run.ts --bundle --platform=node --outfile=out/hosttest.js --alias:vscode=./tools/hosttest/vscode-stub.ts --log-level=warning && node out/hosttest.js",
     "harness": "node esbuild.mjs && node esbuild.mjs --tools && node tools/harness/serve.mjs"
