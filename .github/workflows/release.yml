@@ -1,0 +1,33 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the .vsix and publish it as a GitHub release.
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run package
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VSIX=$(ls *.vsix)
+          gh release create "$GITHUB_REF_NAME" "$VSIX" \
+            --title "$GITHUB_REF_NAME" \
+            --prerelease \
+            --notes "Install in VS Code: Extensions view → \`...\` menu → **Install from VSIX...** and pick \`$VSIX\`, or run \`code --install-extension $VSIX\`.
+
+          Previews .ydr, .ydd, .ytyp (including MLO interiors) and .ytd files. See the README for details and limitations."
