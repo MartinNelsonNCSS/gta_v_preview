@@ -3,7 +3,7 @@ import { GtaPreviewProvider } from '../../src/host/previewProvider';
 import { Uri } from './vscode-stub';
 
 const file = process.argv[2];
-const kind = ({ ydr: 'drawable', ydd: 'dictionary', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
+const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
 let onMessage: (m: unknown) => void = () => {};
 const received: any[] = [];
 const panel = {

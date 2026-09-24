@@ -5,6 +5,7 @@ import { listYtdTextureNames, parseYtd, readYtdTextures } from '../formats/ytd';
 import { parseYtyp } from '../formats/ytyp';
 import { parseYmap } from '../formats/ymap';
 import { parseYbn } from '../formats/bounds';
+import { parseYft } from '../formats/yft';
 import type {
   ArchetypeData,
   ArchetypeRequest,
@@ -19,6 +20,7 @@ import { AssetFile, AssetIndex, basename, dirname, SearchScope } from './assetIn
 export const VIEW_TYPES: Record<ViewKind, string> = {
   drawable: 'gtaPreview.ydr',
   dictionary: 'gtaPreview.ydd',
+  fragment: 'gtaPreview.yft',
   ytyp: 'gtaPreview.ytyp',
   ytd: 'gtaPreview.ytd',
   ymap: 'gtaPreview.ymap',
@@ -163,6 +165,9 @@ class PreviewSession {
           break;
         case 'dictionary':
           this.post({ type: 'drawables', file, kind: 'dictionary', drawables: parseYdd(data, { maxSize }) });
+          break;
+        case 'fragment':
+          this.post({ type: 'drawables', file, kind: 'fragment', drawables: parseYft(data, { maxSize }) });
           break;
         case 'ytd':
           this.post({ type: 'ytd', file, textures: parseYtd(data, { maxSize }) });
@@ -317,18 +322,21 @@ class PreviewSession {
       }
     }
     const ydr = find(req.name, 'ydr');
-    if (!ydr) return null;
-    return parseYdr(await vscode.workspace.fs.readFile(ydr.uri), opts);
+    if (ydr) return parseYdr(await vscode.workspace.fs.readFile(ydr.uri), opts);
+    // Fragments (vehicles, breakables): use the main drawable.
+    const yft = find(req.name, 'yft');
+    if (yft) return parseYft(await vscode.workspace.fs.readFile(yft.uri), opts)[0] ?? null;
+    return null;
   }
 
-  private async openAsset(name: string, ext: 'ydr' | 'ydd' | 'ytd'): Promise<void> {
+  private async openAsset(name: string, ext: 'ydr' | 'ydd' | 'yft' | 'ytd'): Promise<void> {
     const hash = nameToHash(name);
     const file = (await this.index.byExt(ext)).find((f) => f.hash === hash);
     if (!file) {
       void vscode.window.showWarningMessage(`Could not find ${name}.${ext} near ${basename(this.uri)}.`);
       return;
     }
-    const kind = ext === 'ydr' ? 'drawable' : ext === 'ydd' ? 'dictionary' : 'ytd';
+    const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytd: 'ytd' } as const)[ext];
     await vscode.commands.executeCommand('vscode.openWith', file.uri, VIEW_TYPES[kind]);
   }
 }

@@ -78,7 +78,12 @@ class ArchetypesTab {
         'tr',
         {
           onclick: () => this.select(a, row),
-          ondblclick: () => vscode.postMessage({ type: 'openAsset', name: a.drawableDictionary || a.name, ext: a.drawableDictionary ? 'ydd' : 'ydr' }),
+          ondblclick: () =>
+            vscode.postMessage({
+              type: 'openAsset',
+              name: a.drawableDictionary || a.name,
+              ext: a.drawableDictionary ? 'ydd' : a.assetType === 'ASSET_TYPE_FRAGMENT' ? 'yft' : 'ydr',
+            }),
           title: 'Click to preview · double-click to open the model file',
         },
         h('td', null, a.name),
@@ -146,9 +151,7 @@ class ArchetypesTab {
       } else {
         this.panel.setDrawables([]);
         this.panel.setStatus(
-          a.assetType === 'ASSET_TYPE_FRAGMENT'
-            ? `${a.name} is a fragment (.yft), which isn't supported yet.`
-            : `No ${a.drawableDictionary ? `${a.drawableDictionary}.ydd` : `${a.name}.ydr`} found near this file.`
+          `No ${a.drawableDictionary ? `${a.drawableDictionary}.ydd` : a.assetType === 'ASSET_TYPE_FRAGMENT' ? `${a.name}.yft` : `${a.name}.ydr`} found near this file.`
         );
       }
     });

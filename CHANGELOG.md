@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.0
+
+- `.yft` preview: fragments (vehicles, breakable props, liveries) with the main, damaged and extra drawables.
+- Vehicle paint shaders render in neutral paint grey with liveries composited on top.
+- `.ytyp`/`.ymap`: archetypes of type fragment now load their `.yft`; double-click opens it.
+
 ## 0.2.0
 
 - `.ymap` preview: entities placed in 3D, MLO instances expanded from nearby `.ytyp` files, car generators, extents, LOD filter, raw tree.

@@ -22,6 +22,8 @@ export class TextureStore {
   private readonly textures = new Map<string, { tex: THREE.Texture | null; data: TextureData; source: TextureSource }>();
   private readonly waiting = new Map<string, Set<THREE.MeshStandardMaterial>>();
   private readonly listeners = new Set<() => void>();
+  /** Decals baked over a base colour, keyed by texture name and colour. */
+  private readonly baked = new Map<string, THREE.Texture>();
   showTextures = true;
 
   add(list: TextureData[], source: TextureSource): void {
@@ -71,9 +73,39 @@ export class TextureStore {
     for (const [key, mats] of this.waiting) mats.forEach((m) => this.apply(m, key));
   }
 
+  /** `tex` composited over a solid colour, so transparent areas show the base (e.g. paint under a livery). */
+  private bakeOver(key: string, tex: THREE.Texture, color: number): THREE.Texture {
+    const cacheKey = `${key}|${color}`;
+    let out = this.baked.get(cacheKey);
+    if (!out) {
+      const src = tex.image as { data: Uint8Array; width: number; height: number };
+      // Composite in sRGB space, like the texture data itself (hex colours are sRGB).
+      const [br, bg, bb] = [(color >> 16) & 255, (color >> 8) & 255, color & 255];
+      const data = new Uint8Array(src.data.length);
+      for (let i = 0; i < data.length; i += 4) {
+        const a = src.data[i + 3] / 255;
+        data[i] = br + (src.data[i] - br) * a;
+        data[i + 1] = bg + (src.data[i + 1] - bg) * a;
+        data[i + 2] = bb + (src.data[i + 2] - bb) * a;
+        data[i + 3] = 255;
+      }
+      out = new THREE.DataTexture(data, src.width, src.height, THREE.RGBAFormat, THREE.UnsignedByteType);
+      out.colorSpace = THREE.SRGBColorSpace;
+      out.wrapS = out.wrapT = THREE.RepeatWrapping;
+      out.minFilter = THREE.LinearMipmapLinearFilter;
+      out.generateMipmaps = true;
+      out.anisotropy = 8;
+      out.flipY = false;
+      out.needsUpdate = true;
+      this.baked.set(cacheKey, out);
+    }
+    return out;
+  }
+
   private apply(m: THREE.MeshStandardMaterial, key: string): void {
     const entry = this.textures.get(key);
-    const tex = this.showTextures && entry?.tex ? entry.tex : null;
+    let tex = this.showTextures && entry?.tex ? entry.tex : null;
+    if (tex && m.userData.overlayOn !== undefined) tex = this.bakeOver(key, tex, m.userData.overlayOn as number);
     m.map = tex;
     if (m.userData.emissive) m.emissiveMap = tex;
     m.color.set(tex ? 0xffffff : m.userData.fallbackColor ?? 0xcccccc);
@@ -146,8 +178,15 @@ function createMaterial(shader: ShaderData | undefined, index: number, store: Te
     polygonOffsetFactor: blend === 'decal' ? -1 : 0,
     polygonOffsetUnits: blend === 'decal' ? -4 : 0,
   });
-  m.userData.fallbackColor = colorFor(shader?.diffuse ?? `shader${index}`);
+  const paint = /^vehicle_paint/i.test(shader?.name ?? '');
+  // Vehicle paint is a solid colour set at runtime; use a neutral grey.
+  m.userData.fallbackColor = paint ? 0xb4b8be : colorFor(shader?.diffuse ?? `shader${index}`);
   m.userData.shaderIndex = index;
+  if (shader?.diffuseIsOverlay) m.userData.overlayOn = m.userData.fallbackColor;
+  if (paint) {
+    m.roughness = 0.35;
+    m.metalness = 0.1;
+  }
   if (emissive) {
     m.userData.emissive = true;
     m.emissive.set(0xffffff);

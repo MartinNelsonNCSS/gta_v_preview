@@ -5,6 +5,7 @@ import { parseYdr, parseYdd } from '../src/formats/drawable';
 import { parseYtd } from '../src/formats/ytd';
 import { parseYtyp } from '../src/formats/ytyp';
 import { parseYmap } from '../src/formats/ymap';
+import { parseYft } from '../src/formats/yft';
 import { parseYbn } from '../src/formats/bounds';
 import type { DrawableData } from '../src/shared/model';
 
@@ -42,6 +43,7 @@ for (const file of process.argv.slice(2).filter((a) => !a.startsWith('-'))) {
     const t0 = Date.now();
     if (ext === 'ydr') summarizeDrawable(parseYdr(data, opts));
     else if (ext === 'ydd') parseYdd(data, opts).forEach(summarizeDrawable);
+    else if (ext === 'yft') parseYft(data, opts).forEach(summarizeDrawable);
     else if (ext === 'ytd') {
       const t = parseYtd(data, opts);
       console.log(`  ${t.length} textures: ${t.map((x) => `${x.name} ${x.width}x${x.height} ${x.format}${x.pixels ? '' : ' (no data)'}`).join(', ')}`);

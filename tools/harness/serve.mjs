@@ -28,7 +28,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/') {
       const file = url.searchParams.get('file');
       if (file) return res.writeHead(200, { 'content-type': 'text/html' }).end(page(file));
-      const files = (await walk(root)).filter((f) => /\.(ydr|ydd|ytyp|ytd|ymap|ybn)$/i.test(f));
+      const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn)$/i.test(f));
       return res.writeHead(200, { 'content-type': 'text/html' }).end(
         `<body style="font:13px sans-serif;background:#1e1e1e;color:#ccc">${files.map((f) => `<div><a style="color:#4fc3f7" href="/?file=${encodeURIComponent(f)}">${f}</a></div>`).join('')}</body>`
       );

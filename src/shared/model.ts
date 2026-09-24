@@ -38,6 +38,8 @@ export interface ShaderData {
   textures: ShaderTextureRef[];
   /** Lower-cased name of the main colour texture, if any. */
   diffuse?: string;
+  /** The diffuse texture is a decal (e.g. a vehicle livery) drawn over a base colour. */
+  diffuseIsOverlay?: boolean;
   normal?: string;
 }
 
@@ -217,7 +219,7 @@ export interface YtypData {
 // Messages
 // ---------------------------------------------------------------------------
 
-export type ViewKind = 'drawable' | 'dictionary' | 'ytyp' | 'ytd' | 'ymap' | 'ybn';
+export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn';
 
 export interface ArchetypeRequest {
   /** Archetype name (may be an unresolved `hash_XXXXXXXX`). */
@@ -227,7 +229,7 @@ export interface ArchetypeRequest {
 }
 
 export type HostToWebview =
-  | { type: 'drawables'; file: string; kind: 'drawable' | 'dictionary'; drawables: DrawableData[] }
+  | { type: 'drawables'; file: string; kind: 'drawable' | 'dictionary' | 'fragment'; drawables: DrawableData[] }
   | { type: 'ytyp'; file: string; ytyp: YtypData }
   | { type: 'ytd'; file: string; textures: TextureData[] }
   | { type: 'ymap'; file: string; ymap: YmapData }
@@ -249,4 +251,4 @@ export type WebviewToHost =
   | { type: 'ready' }
   | { type: 'findTextures'; requestId: number; names: string[]; hints: string[]; maxSize?: number }
   | { type: 'loadArchetypes'; requestId: number; archetypes: ArchetypeRequest[]; maxTextureSize?: number }
-  | { type: 'openAsset'; name: string; ext: 'ydr' | 'ydd' | 'ytd' };
+  | { type: 'openAsset'; name: string; ext: 'ydr' | 'ydd' | 'yft' | 'ytd' };

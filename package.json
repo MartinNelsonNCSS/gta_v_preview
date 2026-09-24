@@ -1,8 +1,8 @@
 {
   "name": "gta-v-asset-preview",
   "displayName": "GTA V Asset Preview",
-  "description": "Preview GTA V .ydr, .ydd, .ytyp, .ymap, .ybn and .ytd files: 3D models with textures, drawable dictionaries, archetypes, MLO interiors, maps and collisions. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
-  "version": "0.2.0",
+  "description": "Preview GTA V .ydr, .ydd, .yft, .ytyp, .ymap, .ybn and .ytd files: 3D models with textures, drawable dictionaries, vehicles/fragments, archetypes, MLO interiors, maps and collisions. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
+  "version": "0.3.0",
   "publisher": "local-dev",
   "engines": {
     "vscode": "^1.85.0"
@@ -22,7 +22,8 @@
     "codewalker",
     "rage",
     "ymap",
-    "ybn"
+    "ybn",
+    "yft"
   ],
   "main": "./dist/extension.js",
   "browser": "./dist/extension.web.js",
@@ -50,6 +51,16 @@
         "selector": [
           {
             "filenamePattern": "*.ydd"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.yft",
+        "displayName": "GTA V Fragment Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.yft"
           }
         ],
         "priority": "default"

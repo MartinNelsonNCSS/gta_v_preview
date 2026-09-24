@@ -49,8 +49,18 @@ export function parseYdd(file: Uint8Array, opts: DrawableOptions): DrawableData[
 // Drawable
 // ---------------------------------------------------------------------------
 
-/** Reads a rmcDrawable (gtaDrawable) at `ptr`. */
-export function readDrawable(r: ResourceReader, ptr: number, opts: DrawableOptions): DrawableData {
+/**
+ * Where the name and collision pointers live: gtaDrawable (.ydr/.ydd) and
+ * fragDrawable (.yft) extend the same rmcDrawable base differently.
+ */
+export type DrawableVariant = 'gta' | 'frag';
+const VARIANT_OFFSETS: Record<DrawableVariant, { name: number; bounds: number }> = {
+  gta: { name: 0xa8, bounds: 0xc8 },
+  frag: { name: 0x130, bounds: 0xf0 },
+};
+
+/** Reads a rmcDrawable (gtaDrawable or fragDrawable) at `ptr`. */
+export function readDrawable(r: ResourceReader, ptr: number, opts: DrawableOptions, variant: DrawableVariant = 'gta'): DrawableData {
   const shaderGroupPtr = r.ptr(ptr + 0x10);
   const skeletonPtr = r.ptr(ptr + 0x18);
 
@@ -84,12 +94,12 @@ export function readDrawable(r: ResourceReader, ptr: number, opts: DrawableOptio
     }
   }
 
-  // The name and collision pointers live in gtaDrawable, the derived type used by .ydr/.ydd.
   let name = '';
   let bounds: DrawableData['bounds'];
+  const offsets = VARIANT_OFFSETS[variant];
   try {
-    name = r.string(r.ptr(ptr + 0xa8)) ?? '';
-    const boundsPtr = r.ptr(ptr + 0xc8);
+    name = r.string(r.ptr(ptr + offsets.name)) ?? '';
+    const boundsPtr = r.ptr(ptr + offsets.bounds);
     if (r.isValid(boundsPtr)) bounds = readBounds(r, boundsPtr);
   } catch {
     // Missing or unreadable collision is not fatal.
@@ -336,6 +346,15 @@ function readShader(r: ResourceReader, ptr: number): ShaderData {
     if (!shader.diffuse && DIFFUSE_PARAMS.includes(key)) shader.diffuse = texName.toLowerCase();
     if (!shader.normal && NORMAL_PARAMS.includes(key)) shader.normal = texName.toLowerCase();
   });
+  // Vehicle paint shaders: DiffuseSampler is a shared generic map; the livery (if any)
+  // is DiffuseSampler2, drawn over the paint colour.
+  if (/^vehicle_paint/i.test(shader.name)) {
+    const livery = shader.textures.find((t) => t.param.toLowerCase() === 'diffusesampler2');
+    if (livery) {
+      shader.diffuse = livery.texture.toLowerCase();
+      shader.diffuseIsOverlay = true;
+    }
+  }
   // Fall back to the first texture that isn't obviously a normal/spec map.
   if (!shader.diffuse) {
     const guess = shader.textures.find((t) => !/_(n|s|nm|spec|normal|bump)$/i.test(t.texture));
