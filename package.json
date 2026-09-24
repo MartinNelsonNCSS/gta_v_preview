@@ -1,0 +1,130 @@
+{
+  "name": "gta-v-asset-preview",
+  "displayName": "GTA V Asset Preview",
+  "description": "Preview GTA V .ydr, .ydd, .ytyp and .ytd files: 3D models with textures, drawable dictionaries, archetypes and MLO interiors. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
+  "version": "0.1.0",
+  "publisher": "local-dev",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "gta",
+    "gta5",
+    "fivem",
+    "ydr",
+    "ydd",
+    "ytyp",
+    "ytd",
+    "codewalker",
+    "rage"
+  ],
+  "main": "./dist/extension.js",
+  "browser": "./dist/extension.web.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": true
+    },
+    "virtualWorkspaces": true
+  },
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "gtaPreview.ydr",
+        "displayName": "GTA V Drawable Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.ydr"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.ydd",
+        "displayName": "GTA V Drawable Dictionary Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.ydd"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.ytyp",
+        "displayName": "GTA V Archetype Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.ytyp"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.ytd",
+        "displayName": "GTA V Texture Dictionary Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.ytd"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "configuration": {
+      "title": "GTA V Asset Preview",
+      "properties": {
+        "gtaPreview.assetSearch": {
+          "type": "string",
+          "enum": [
+            "workspace",
+            "folder",
+            "off"
+          ],
+          "enumDescriptions": [
+            "Search the whole workspace folder for .ytd/.ydr/.ydd files referenced by the previewed file.",
+            "Only search around the previewed file (its parent folder and subfolders).",
+            "Don't look for external textures or models."
+          ],
+          "default": "workspace",
+          "description": "Where to look for external texture dictionaries (.ytd) and models (.ydr/.ydd) referenced by the previewed file."
+        },
+        "gtaPreview.maxTextureSize": {
+          "type": "number",
+          "enum": [
+            256,
+            512,
+            1024,
+            2048,
+            4096
+          ],
+          "default": 1024,
+          "description": "Largest texture dimension to decode. Bigger textures use a smaller mip level, which keeps previews fast."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "inspect": "node esbuild.mjs --tools && node out/inspect.js",
+    "package": "npm run typecheck && vsce package --no-dependencies --skip-license --allow-missing-repository",
+    "vscode:prepublish": "node esbuild.mjs --production",
+    "hosttest": "esbuild tools/hosttest/run.ts --bundle --platform=node --outfile=out/hosttest.js --alias:vscode=./tools/hosttest/vscode-stub.ts --log-level=warning && node out/hosttest.js"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "@types/three": "^0.186.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^4.0.0",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2"
+  }
+}
