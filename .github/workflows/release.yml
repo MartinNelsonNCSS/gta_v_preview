@@ -3,6 +3,11 @@ name: Release
 # Push a tag like v0.1.0 to build the .vsix, publish it as a GitHub release and,
 # when the tokens are configured, publish it to the VS Code Marketplace and Open VSX.
 #
+# Safe to re-run: an existing GitHub release gets its .vsix replaced, and a
+# version already on a store is skipped. To (re)publish an existing tag with
+# this workflow (e.g. after adding a token), use Actions → Release →
+# Run workflow and enter the tag.
+#
 # Repository secrets (Settings → Secrets and variables → Actions):
 #   VSCE_PAT  Azure DevOps personal access token with the Marketplace → Manage scope
 #   OVSX_PAT  Open VSX access token (https://open-vsx.org/user-settings/tokens)
@@ -10,6 +15,10 @@ on:
   push:
     tags: ['v*']
   workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing tag to (re)publish, e.g. v0.7.0
+        required: true
 
 permissions:
   contents: write
@@ -18,10 +27,13 @@ jobs:
   release:
     runs-on: ubuntu-latest
     env:
+      TAG: ${{ inputs.tag || github.ref_name }}
       VSCE_PAT: ${{ secrets.VSCE_PAT }}
       OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -35,16 +47,21 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "$VSIX" \
-            --title "$GITHUB_REF_NAME" \
-            --notes "Install from the VS Code Marketplace (\`ncss-ltd.gta-v-asset-preview\`), Open VSX, or download \`$VSIX\` below and use Extensions → \`...\` → **Install from VSIX...**.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; replacing its .vsix."
+            gh release upload "$TAG" "$VSIX" --clobber
+          else
+            gh release create "$TAG" "$VSIX" \
+              --title "$TAG" \
+              --notes "Install from the VS Code Marketplace (\`ncss-ltd.gta-v-asset-preview\`), Open VSX, or download \`$VSIX\` below and use Extensions → \`...\` → **Install from VSIX...**.
 
           See the [changelog](https://github.com/MartinNelsonNCSS/gta_v_preview/blob/main/CHANGELOG.md) for what's new."
+          fi
 
       - name: Publish to VS Code Marketplace
         if: env.VSCE_PAT != ''
-        run: npx vsce publish --packagePath "$VSIX" --pat "$VSCE_PAT"
+        run: npx vsce publish --packagePath "$VSIX" --pat "$VSCE_PAT" --skip-duplicate
 
       - name: Publish to Open VSX
         if: env.OVSX_PAT != ''
-        run: npx --yes ovsx publish "$VSIX" --pat "$OVSX_PAT"
+        run: npx --yes ovsx publish "$VSIX" --pat "$OVSX_PAT" --skip-duplicate
