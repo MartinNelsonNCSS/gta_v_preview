@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.0
+
+- Change texture resolution: any size for textures in a `.ytd` (rebuilt with a new page layout), halving for textures embedded in `.ydr`/`.ydd`/`.yft`.
+- The size picker also rescales a texture without replacing its image.
+
 ## 0.5.0
 
 - Replace textures: preview any PNG/JPG/WebP/BMP/DDS on the model, then save it into the `.ytd`/`.ydr`/`.ydd`/`.yft` (re-encoded to the texture's size and format with mips; `.bak` backup kept).

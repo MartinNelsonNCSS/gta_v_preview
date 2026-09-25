@@ -24,12 +24,18 @@ export interface EditTarget {
 }
 
 interface PendingEdit {
+  /** The image being applied (a picked file, or the texture itself when only resizing). */
+  source: HTMLCanvasElement;
+  from: string;
+  /** Resized to the target size. */
   rgba: Uint8Array;
   width: number;
   height: number;
   preview: TextureData;
-  from: string;
 }
+
+/** Largest texture dimension offered when growing a texture. */
+const MAX_SIZE = 8192;
 
 /** Replacements not yet saved, keyed by origin + texture name (survive closing the viewer). */
 const pending = new Map<string, PendingEdit>();
@@ -57,50 +63,113 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
   const t = target.original;
   const status = h('span', { class: 'muted edit-status' });
   const writable = WRITABLE.has(t.format) && !!t.origin;
+  const inYtd = /\.ytd$/i.test(t.origin ?? '');
   const replace = h('button', { class: 'chip', title: 'Preview another image on this texture (PNG, JPG, DDS...)' }, 'Replace…');
-  const save = h('button', { class: 'chip active', title: `Write the replacement into ${originName(t) || 'its file'}` }, 'Save to file');
-  const revert = h('button', { class: 'chip', title: 'Discard the replacement' }, 'Revert');
+  const sizeSelect = h('select', { title: 'Size to save the texture at' });
+  const save = h('button', { class: 'chip active', title: `Write the change into ${originName(t) || 'its file'}` }, 'Save to file');
+  const revert = h('button', { class: 'chip', title: 'Discard the change' }, 'Revert');
   const png = h('button', { class: 'chip', title: 'Export the original texture as PNG' }, 'Export PNG');
   const dds = h('button', { class: 'chip', title: 'Export the original compressed data (all mips) as DDS' }, 'Export DDS');
   if (!t.origin) {
-    for (const b of [replace, png, dds]) {
+    for (const b of [replace, sizeSelect, png, dds]) {
       b.disabled = true;
       b.title = "This texture's source file is unknown.";
     }
   }
+  const say = (text: string) => (status.textContent = text);
+  const sizeKey = (w: number, hgt: number) => `${w}x${hgt}`;
+
+  /** Sizes the texture can be saved at (see formats/textureEdit.ts). */
+  const fillSizes = (imageSize?: { w: number; h: number }) => {
+    const current = pending.get(keyOf(t));
+    const selected = current ? sizeKey(current.width, current.height) : sizeKey(t.width, t.height);
+    const options: { w: number; h: number; label: string }[] = [];
+    if (inYtd) {
+      for (const m of [4, 2]) {
+        if (Math.max(t.width, t.height) * m <= MAX_SIZE) options.push({ w: t.width * m, h: t.height * m, label: `${t.width * m}×${t.height * m} (${m}×)` });
+      }
+    }
+    options.push({ w: t.width, h: t.height, label: `${t.width}×${t.height} (current)` });
+    for (let k = 1; k < Math.max(t.levels, inYtd ? 8 : 0) && Math.min(t.width >> k, t.height >> k) >= 4; k++) {
+      options.push({ w: t.width >> k, h: t.height >> k, label: `${t.width >> k}×${t.height >> k} (1/${1 << k})` });
+    }
+    if (inYtd && imageSize) {
+      // Snap the image's own size to multiples of 4 for block-compressed formats.
+      const w = Math.min(MAX_SIZE, Math.max(4, Math.round(imageSize.w / 4) * 4));
+      const hh = Math.min(MAX_SIZE, Math.max(4, Math.round(imageSize.h / 4) * 4));
+      if (!options.some((o) => o.w === w && o.h === hh)) options.push({ w, h: hh, label: `${w}×${hh} (image size)` });
+    }
+    sizeSelect.replaceChildren(...options.map((o) => h('option', { value: sizeKey(o.w, o.h), selected: sizeKey(o.w, o.h) === selected }, o.label)));
+    sizeSelect.title = inYtd ? 'Size to save the texture at' : 'Size to save the texture at (embedded textures can only be halved; use a .ytd for other sizes)';
+  };
+
   const refresh = () => {
     const p = pending.get(keyOf(t));
     save.hidden = revert.hidden = !p;
     save.disabled = !writable;
     if (!writable && t.origin) save.title = `Writing ${t.format} textures isn't supported yet; you can still preview.`;
   };
-  const say = (text: string) => (status.textContent = text);
+
+  /** Resizes the pending source to the selected size and updates the preview. */
+  const apply = (source: HTMLCanvasElement, from: string) => {
+    const [w, hgt] = sizeSelect.value.split('x').map(Number);
+    if (from === 'original' && w === t.width && hgt === t.height) {
+      revertEdit();
+      return;
+    }
+    const rgba = canvasToRgba(resizeCanvas(source, w, hgt));
+    const preview = makePreview(t, rgba, w, hgt);
+    pending.set(keyOf(t), { source, from, rgba, width: w, height: hgt, preview });
+    target.setPreview(preview);
+    show(preview);
+    const what = from === 'original' ? 'the resized texture' : from;
+    const resized = source.width !== w || source.height !== hgt ? ` (from ${source.width}×${source.height})` : '';
+    say(`Previewing ${what} at ${w}×${hgt}${resized}. Not saved yet.`);
+    refresh();
+  };
+
+  const revertEdit = () => {
+    pending.delete(keyOf(t));
+    target.setPreview(undefined);
+    show(t);
+    fillSizes();
+    say('Reverted.');
+    refresh();
+  };
 
   replace.onclick = async () => {
     const picked = await hostRequest({ type: 'pickImage', requestId: newRequestId() }, 'pickedImage');
     if (!picked.data || !picked.name) return;
     say('Loading image…');
     try {
-      const { rgba, sourceWidth, sourceHeight } = await imageToRgba(picked.name, picked.data, t.width, t.height);
-      const preview = makePreview(t, rgba);
-      pending.set(keyOf(t), { rgba, width: t.width, height: t.height, preview, from: picked.name });
-      target.setPreview(preview);
-      show(preview);
-      const resized = sourceWidth !== t.width || sourceHeight !== t.height ? ` (resized from ${sourceWidth}×${sourceHeight})` : '';
-      say(`Previewing ${picked.name}${resized}. Not saved yet.`);
+      const source = await decodeImage(picked.name, picked.data);
+      fillSizes({ w: source.width, h: source.height });
+      apply(source, picked.name);
     } catch (err) {
       say(`Couldn't load ${picked.name}: ${(err as Error).message}`);
     }
-    refresh();
   };
 
-  revert.onclick = () => {
-    pending.delete(keyOf(t));
-    target.setPreview(undefined);
-    show(t);
-    say('Reverted.');
-    refresh();
+  sizeSelect.onchange = async () => {
+    const p = pending.get(keyOf(t));
+    if (p) {
+      apply(p.source, p.from);
+      return;
+    }
+    // Resizing the texture itself: start from its full-resolution pixels.
+    if (!t.origin) return;
+    say('Loading full-resolution texture…');
+    const full = await hostRequest({ type: 'getFullTexture', requestId: newRequestId(), origin: t.origin, name: t.name }, 'fullTexture');
+    const px = full.texture?.pixels;
+    const rgba = px && (px.encoding === 'bc7' ? decodeBc7(px.data, px.width, px.height) : px.data);
+    if (!px || !rgba) {
+      say(`Couldn't load the texture: ${full.error ?? 'no pixel data'}`);
+      return;
+    }
+    apply(rgbaCanvas(rgba, px.width, px.height), 'original');
   };
+
+  revert.onclick = revertEdit;
 
   save.onclick = async () => {
     const p = pending.get(keyOf(t));
@@ -140,16 +209,17 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
     say(saved.path ? `Exported to ${saved.path}` : saved.error ? `Export failed: ${saved.error}` : '');
   };
 
+  const existing = pending.get(keyOf(t));
+  fillSizes(existing ? { w: existing.source.width, h: existing.source.height } : undefined);
   refresh();
-  const p = pending.get(keyOf(t));
-  if (p) say(`Previewing ${p.from}. Not saved yet.`);
-  return h('div', { class: 'edit-actions' }, replace, save, revert, h('span', { class: 'sep' }), png, dds, status);
+  if (existing) say(`Previewing ${existing.from === 'original' ? 'the resized texture' : existing.from} at ${existing.width}×${existing.height}. Not saved yet.`);
+  return h('div', { class: 'edit-actions' }, replace, h('label', { class: 'toggle' }, 'Size', sizeSelect), save, revert, h('span', { class: 'sep' }), png, dds, status);
 }
 
-/** A display-sized RGBA texture for previewing a replacement. */
-function makePreview(t: TextureData, rgba: Uint8Array): TextureData {
-  let w = t.width;
-  let hgt = t.height;
+/** A display-sized RGBA texture for previewing a replacement of size w×hgt. */
+function makePreview(t: TextureData, rgba: Uint8Array, width: number, height: number): TextureData {
+  let w = width;
+  let hgt = height;
   let data = rgba;
   if (Math.max(w, hgt) > PREVIEW_SIZE) {
     const canvas = rgbaCanvas(rgba, w, hgt);
@@ -159,33 +229,32 @@ function makePreview(t: TextureData, rgba: Uint8Array): TextureData {
     hgt = small.height;
     data = new Uint8Array(small.getContext('2d')!.getImageData(0, 0, w, hgt).data.buffer);
   }
-  return { ...t, pixels: { width: w, height: hgt, encoding: 'rgba', data } };
+  return { ...t, width, height, pixels: { width: w, height: hgt, encoding: 'rgba', data } };
 }
 
 // ---------------------------------------------------------------------------
 // Image conversion
 // ---------------------------------------------------------------------------
 
-/** Decodes an image file (PNG/JPG/WebP/BMP/GIF/DDS) and resizes it to exactly w×h RGBA. */
-export async function imageToRgba(name: string, data: Uint8Array, w: number, hgt: number): Promise<{ rgba: Uint8Array; sourceWidth: number; sourceHeight: number }> {
-  let source: HTMLCanvasElement;
+/** Decodes an image file (PNG/JPG/WebP/BMP/GIF/DDS) into a canvas at its own size. */
+export async function decodeImage(name: string, data: Uint8Array): Promise<HTMLCanvasElement> {
   if (/\.dds$/i.test(name)) {
     const dds = parseDds(data);
     const rgba = dds.format === 'BC7' ? decodeBc7(dds.data, dds.width, dds.height) : decodeToRgba(formatCode(dds.format)!, dds.data, dds.width, dds.height);
     if (!rgba) throw new Error('BC7 DDS files need GPU support for BC7.');
-    source = rgbaCanvas(rgba, dds.width, dds.height);
-  } else {
-    const bitmap = await createImageBitmap(new Blob([data.slice()]), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
-    source = document.createElement('canvas');
-    source.width = bitmap.width;
-    source.height = bitmap.height;
-    source.getContext('2d')!.drawImage(bitmap, 0, 0);
-    bitmap.close();
+    return rgbaCanvas(rgba, dds.width, dds.height);
   }
-  const sourceWidth = source.width;
-  const sourceHeight = source.height;
-  const out = resizeCanvas(source, w, hgt);
-  return { rgba: new Uint8Array(out.getContext('2d')!.getImageData(0, 0, w, hgt).data.buffer), sourceWidth, sourceHeight };
+  const bitmap = await createImageBitmap(new Blob([data.slice()]), { premultiplyAlpha: 'none', colorSpaceConversion: 'none' });
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d')!.drawImage(bitmap, 0, 0);
+  bitmap.close();
+  return canvas;
+}
+
+function canvasToRgba(c: HTMLCanvasElement): Uint8Array {
+  return new Uint8Array(c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data.buffer);
 }
 
 function rgbaCanvas(rgba: Uint8Array, w: number, hgt: number): HTMLCanvasElement {

@@ -452,7 +452,10 @@ class PreviewSession {
       const file = basename(uri);
       const choice = await vscode.window.showWarningMessage(
         `Replace texture "${m.name}" in ${file}?`,
-        { modal: true, detail: `The image is resized to ${m.width}×${m.height} and re-encoded in the texture's current format. The original file is kept as ${file}.bak.` },
+        {
+          modal: true,
+          detail: `The texture is saved at ${m.width}×${m.height}, re-encoded in its current format with a full set of mipmaps. The original file is kept as ${file}.bak.`,
+        },
         'Replace'
       );
       if (choice !== 'Replace') {
