@@ -21,12 +21,13 @@ onHostMessage((m: HostToWebview) => {
         show(errorView('This drawable dictionary is empty.'));
         return;
       }
-      // Reuse the panel on live reload so the camera stays put.
+      // Reuse the panel on live reload (e.g. after saving a texture) so the camera stays put.
+      const reload = !!modelPanel;
       if (!modelPanel) {
         modelPanel = new ModelPanel();
         show(modelPanel.el);
       }
-      modelPanel.setDrawables(m.drawables);
+      modelPanel.setDrawables(m.drawables, reload);
       break;
     case 'ytd':
       show(ytdView(m.file, m.textures));

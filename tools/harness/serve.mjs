@@ -1,6 +1,6 @@
 // Dev server for the webview harness: node tools/harness/serve.mjs <samples-dir> [port]
 import { createServer } from 'http';
-import { readFile, readdir, stat } from 'fs/promises';
+import { readFile, readdir, stat, writeFile } from 'fs/promises';
 import { join, extname, relative, resolve } from 'path';
 
 const root = resolve(process.argv[2] ?? '.');
@@ -36,8 +36,16 @@ createServer(async (req, res) => {
     if (url.pathname === '/api/list') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(await walk(root)));
     let path;
     if (url.pathname.startsWith('/files/')) path = join(root, decodeURIComponent(url.pathname.slice(7)));
+    if (path && req.method === 'PUT') {
+      if (!path.startsWith(root)) throw new Error('outside root');
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      await writeFile(path, Buffer.concat(chunks));
+      return res.writeHead(204).end();
+    }
     else if (url.pathname.startsWith('/dist/') || url.pathname.startsWith('/out/')) path = join(repo, url.pathname);
     if (!path || !(await stat(path)).isFile()) throw new Error('not found');
+    if (req.method === 'HEAD') return res.writeHead(200).end();
     res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' }).end(await readFile(path));
   } catch {
     res.writeHead(404).end('not found');

@@ -1,6 +1,7 @@
 import type { TextureData } from '../shared/model';
 import { decodeBc7 } from './bc7';
 import { h } from './ui';
+import { editActions, EditTarget, pendingPreview } from './textureEditor';
 
 const rgbaCache = new WeakMap<TextureData, Uint8Array | null>();
 
@@ -56,17 +57,25 @@ export function textureDescription(t: TextureData): string {
   return `${t.width}×${t.height} · ${t.format} · ${t.levels} mip${t.levels === 1 ? '' : 's'}${shown}`;
 }
 
-/** Full-size texture viewer overlay with channel toggles. */
-export function openLightbox(t: TextureData, source?: string): void {
+/** Full-size texture viewer overlay with channel toggles and (optionally) edit/export actions. */
+export function openLightbox(t: TextureData, source?: string, edit?: EditTarget): void {
   let mode: ChannelMode = 'rgba';
+  let shown = (edit && pendingPreview(edit.original)) || t;
   const holder = h('div', { class: 'lightbox-image checker' });
+  const info = h('div');
   const render = () => {
-    const canvas = textureCanvas(t, Infinity, mode);
+    const canvas = textureCanvas(shown, Infinity, mode);
     // Upscale small textures (pixelated) so they're inspectable; downscale big ones to fit.
-    const scale = Math.min(innerWidth * 0.9 / canvas.width, (innerHeight * 0.95 - 60) / canvas.height, Math.max(1, 512 / Math.max(canvas.width, canvas.height)));
+    const scale = Math.min(innerWidth * 0.9 / canvas.width, (innerHeight * 0.95 - 110) / canvas.height, Math.max(1, 512 / Math.max(canvas.width, canvas.height)));
     canvas.style.width = `${Math.round(canvas.width * scale)}px`;
     canvas.style.height = `${Math.round(canvas.height * scale)}px`;
     holder.replaceChildren(canvas);
+    const previewing = shown !== t;
+    info.replaceChildren(
+      h('strong', null, t.name),
+      ...(previewing ? [h('span', { class: 'badge' }, 'preview')] : []),
+      h('div', { class: 'muted' }, textureDescription(t), source ? ` · ${source}` : '')
+    );
     buttons.forEach((b) => b.classList.toggle('active', b.dataset.mode === mode));
   };
   const buttons = (['rgba', 'rgb', 'alpha'] as ChannelMode[]).map((m) =>
@@ -77,18 +86,15 @@ export function openLightbox(t: TextureData, source?: string): void {
     window.removeEventListener('keydown', onKey);
   };
   const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
+  const actions = edit ? editActions(edit, (next) => ((shown = next), render())) : null;
   const overlay = h(
     'div',
     { class: 'lightbox', onclick: (e: Event) => e.target === overlay && close() },
     h(
       'div',
       { class: 'lightbox-panel' },
-      h(
-        'div',
-        { class: 'lightbox-header' },
-        h('div', null, h('strong', null, t.name), h('div', { class: 'muted' }, textureDescription(t), source ? ` · ${source}` : '')),
-        h('div', { class: 'row' }, ...buttons, h('button', { class: 'chip', onclick: close, title: 'Close (Esc)' }, '✕'))
-      ),
+      h('div', { class: 'lightbox-header' }, info, h('div', { class: 'row' }, ...buttons, h('button', { class: 'chip', onclick: close, title: 'Close (Esc)' }, '✕'))),
+      actions,
       holder
     )
   );

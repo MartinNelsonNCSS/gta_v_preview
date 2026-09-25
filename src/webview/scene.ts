@@ -19,7 +19,9 @@ export type TextureSource = 'embedded' | string;
  * updated in place.
  */
 export class TextureStore {
-  private readonly textures = new Map<string, { tex: THREE.Texture | null; data: TextureData; source: TextureSource }>();
+  private readonly textures = new Map<string, { tex: THREE.Texture | null; data: TextureData; source: TextureSource; preview?: boolean }>();
+  /** Originals of textures currently replaced by a preview. */
+  private readonly originals = new Map<string, { tex: THREE.Texture | null; data: TextureData; source: TextureSource }>();
   private readonly waiting = new Map<string, Set<THREE.MeshStandardMaterial>>();
   private readonly listeners = new Set<() => void>();
   /** Decals baked over a base colour, keyed by texture name and colour. */
@@ -41,12 +43,37 @@ export class TextureStore {
     return this.textures.has(name.toLowerCase());
   }
 
-  info(name: string): { data: TextureData; source: TextureSource } | undefined {
+  info(name: string): { data: TextureData; source: TextureSource; preview?: boolean } | undefined {
     return this.textures.get(name.toLowerCase());
   }
 
-  all(): { data: TextureData; source: TextureSource }[] {
-    return [...this.textures.values()];
+  all(): { key: string; data: TextureData; source: TextureSource; preview?: boolean }[] {
+    return [...this.textures.entries()].map(([key, v]) => ({ key, ...v }));
+  }
+
+  /** The texture as loaded from the file, ignoring any preview. */
+  original(name: string): TextureData | undefined {
+    const key = name.toLowerCase();
+    return (this.originals.get(key) ?? this.textures.get(key))?.data;
+  }
+
+  /** Shows `data` in place of texture `name` everywhere it's used; undefined reverts. */
+  setPreview(name: string, data: TextureData | undefined): void {
+    const key = name.toLowerCase();
+    const current = this.textures.get(key);
+    if (!current) return;
+    if (data) {
+      if (!this.originals.has(key)) this.originals.set(key, current);
+      this.textures.set(key, { tex: toThreeTexture(data), data, source: current.source, preview: true });
+    } else {
+      const original = this.originals.get(key);
+      if (!original) return;
+      this.originals.delete(key);
+      this.textures.set(key, original);
+    }
+    for (const k of [...this.baked.keys()]) if (k.startsWith(`${key}|`)) this.baked.delete(k);
+    this.waiting.get(key)?.forEach((m) => this.apply(m, key));
+    this.listeners.forEach((l) => l());
   }
 
   onChange(l: () => void): () => void {

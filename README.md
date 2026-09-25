@@ -49,6 +49,15 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
   with its texture variations, using the files next to the `.ymt` (streamed `ped^jbib_000_u.ydd` or plain `jbib_000_u.ydd`
   names). Pick a drawable to see its model with the selected variation's texture applied; dots show whether each
   model file exists. Encrypted (escrow) models still show their texture variations.
+- **Replacing and exporting textures**: click any texture (sidebar thumbnail, shader texture name, `.ytd` card, or a
+  `.ymt` variation via double-click) to open the viewer:
+  - **Replace…** picks a PNG/JPG/WebP/BMP/DDS and previews it on the model straight away. Nothing is written yet.
+  - **Save to file** writes it into the file the texture actually lives in (the `.ytd`, or the `.ydr`/`.ydd`/`.yft` that
+    embeds it), after confirmation. The image is resized to the texture's current size and re-encoded in its current
+    format (DXT1/3/5, BC4/5 or uncompressed) with a full mip chain. The first time a file is changed, the original
+    is kept next to it as `<file>.bak`.
+  - **Revert** discards an unsaved replacement. **Export PNG** / **Export DDS** save the original texture (DDS keeps
+    the exact compressed data and mips).
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
@@ -63,6 +72,8 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
 
 - **FiveM escrow (`FXAP`) files are encrypted** and can't be previewed. The editor says so when you open one.
 - Gen9 / Enhanced-edition (`RSC8`) resources and PSO-format (binary `PSIN`) `.ymt` files aren't supported yet.
+- Texture replacement keeps each texture's size and format; changing resolution or format isn't supported yet, and
+  BC7 / 16-bit textures can be previewed and exported but not written back.
 - `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is drawn as neutral grey and
   shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.

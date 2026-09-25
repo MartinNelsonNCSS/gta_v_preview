@@ -42,6 +42,21 @@ const FORMATS: Record<number, FormatInfo> = {
   [FMT.L8]: { name: 'L8', pixelBytes: 1 },
 };
 
+/** Total bytes of `levels` mips of a `format` texture, or undefined for unknown formats. */
+export function textureDataSize(format: number, width: number, height: number, levels: number): number | undefined {
+  const info = FORMATS[format];
+  if (!info) return undefined;
+  let size = 0;
+  for (let i = 0, w = width, h = height; i < levels; i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) size += levelSize(info, w, h);
+  return size;
+}
+
+/** D3D format code for a format name as reported in TextureData.format. */
+export function formatCode(name: string): number | undefined {
+  for (const [code, info] of Object.entries(FORMATS)) if (info.name === name) return Number(code);
+  return undefined;
+}
+
 function levelSize(info: FormatInfo, w: number, h: number): number {
   if (info.blockBytes) return Math.max(1, (w + 3) >> 2) * Math.max(1, (h + 3) >> 2) * info.blockBytes;
   return w * h * (info.pixelBytes ?? 4);

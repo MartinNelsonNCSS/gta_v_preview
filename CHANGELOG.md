@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- Replace textures: preview any PNG/JPG/WebP/BMP/DDS on the model, then save it into the `.ytd`/`.ydr`/`.ydd`/`.yft` (re-encoded to the texture's size and format with mips; `.bak` backup kept).
+- Export textures as PNG or DDS.
+- Click a texture name in the shader list to open it.
+
 ## 0.4.3
 
 - Published under the `ncss-ltd` publisher, with an extension icon.

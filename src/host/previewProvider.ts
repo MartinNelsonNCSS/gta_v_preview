@@ -7,6 +7,7 @@ import { parseYmap } from '../formats/ymap';
 import { parseYbn } from '../formats/bounds';
 import { parseYft } from '../formats/yft';
 import { parseYmt } from '../formats/ymt';
+import { exportDds, readFullTexture, replaceTexture, TextureFileKind } from '../formats/textureEdit';
 import type {
   ArchetypeData,
   ArchetypeRequest,
@@ -153,6 +154,21 @@ class PreviewSession {
         case 'loadTextureFile':
           await this.loadTextureFile(message.requestId, message.name, message.maxSize);
           break;
+        case 'pickImage':
+          await this.pickImage(message.requestId);
+          break;
+        case 'getFullTexture':
+          await this.getFullTexture(message.requestId, message.origin, message.name);
+          break;
+        case 'replaceTexture':
+          await this.replaceTexture(message);
+          break;
+        case 'exportDds':
+          await this.exportDds(message.requestId, message.origin, message.name);
+          break;
+        case 'saveFile':
+          await this.saveFile(message.requestId, message.suggestedName, message.data, message.filterName, message.extensions);
+          break;
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', this.uri, 'default');
           break;
@@ -184,16 +200,16 @@ class PreviewSession {
     try {
       switch (this.kind) {
         case 'drawable':
-          this.post({ type: 'drawables', file, kind: 'drawable', drawables: [parseYdr(data, { maxSize })] });
+          this.post({ type: 'drawables', file, kind: 'drawable', drawables: withOrigin([parseYdr(data, { maxSize })], this.uri) });
           break;
         case 'dictionary':
-          this.post({ type: 'drawables', file, kind: 'dictionary', drawables: parseYdd(data, { maxSize }) });
+          this.post({ type: 'drawables', file, kind: 'dictionary', drawables: withOrigin(parseYdd(data, { maxSize }), this.uri) });
           break;
         case 'fragment':
-          this.post({ type: 'drawables', file, kind: 'fragment', drawables: parseYft(data, { maxSize }) });
+          this.post({ type: 'drawables', file, kind: 'fragment', drawables: withOrigin(parseYft(data, { maxSize }), this.uri) });
           break;
         case 'ytd':
-          this.post({ type: 'ytd', file, textures: parseYtd(data, { maxSize }) });
+          this.post({ type: 'ytd', file, textures: tagOrigin(parseYtd(data, { maxSize }), this.uri) });
           break;
         case 'ytyp':
           // File names nearby let us turn most name hashes back into names.
@@ -298,7 +314,7 @@ class PreviewSession {
       const matches = new Set([...wanted].filter((n) => entry!.names.has(n)));
       if (!matches.size) return [];
       data ??= await vscode.workspace.fs.readFile(ytd.uri);
-      return readYtdTextures(data, matches, opts);
+      return tagOrigin(readYtdTextures(data, matches, opts), ytd.uri);
     } catch {
       return []; // Encrypted or malformed dictionaries are skipped.
     }
@@ -350,14 +366,14 @@ class PreviewSession {
         const hash = nameToHash(req.name);
         const drawables = await this.yddCache.get(key)!;
         const match = drawables.find((d) => d.nameHash === hash || joaat(d.name) === hash);
-        if (match) return match;
+        if (match) return withOrigin([match], ydd.uri)[0];
       }
     }
     const ydr = find(req.name, 'ydr');
-    if (ydr) return parseYdr(await vscode.workspace.fs.readFile(ydr.uri), opts);
+    if (ydr) return withOrigin([parseYdr(await vscode.workspace.fs.readFile(ydr.uri), opts)], ydr.uri)[0];
     // Fragments (vehicles, breakables): use the main drawable.
     const yft = find(req.name, 'yft');
-    if (yft) return parseYft(await vscode.workspace.fs.readFile(yft.uri), opts)[0] ?? null;
+    if (yft) return withOrigin(parseYft(await vscode.workspace.fs.readFile(yft.uri), opts), yft.uri)[0] ?? null;
     return null;
   }
 
@@ -374,7 +390,7 @@ class PreviewSession {
     try {
       const data = await vscode.workspace.fs.readFile(file.uri);
       const drawables = file.ext === 'ydd' ? parseYdd(data, opts) : file.ext === 'yft' ? parseYft(data, opts) : [parseYdr(data, opts)];
-      this.post({ type: 'drawableFile', requestId, drawables });
+      this.post({ type: 'drawableFile', requestId, drawables: withOrigin(drawables, file.uri) });
     } catch (err) {
       this.post({ type: 'drawableFile', requestId, drawables: [], error: (err as Error).message });
     }
@@ -389,9 +405,100 @@ class PreviewSession {
       return;
     }
     try {
-      this.post({ type: 'textureFile', requestId, textures: parseYtd(await vscode.workspace.fs.readFile(file.uri), opts) });
+      this.post({ type: 'textureFile', requestId, textures: tagOrigin(parseYtd(await vscode.workspace.fs.readFile(file.uri), opts), file.uri) });
     } catch (err) {
       this.post({ type: 'textureFile', requestId, textures: [], error: (err as Error).message });
+    }
+  }
+
+  // -- texture editing ------------------------------------------------------------
+
+  private async pickImage(requestId: number): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectMany: false,
+      openLabel: 'Use image',
+      defaultUri: dirname(this.uri),
+      filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif', 'dds'] },
+    });
+    if (!picked?.[0]) {
+      this.post({ type: 'pickedImage', requestId });
+      return;
+    }
+    this.post({ type: 'pickedImage', requestId, name: basename(picked[0]), data: await vscode.workspace.fs.readFile(picked[0]) });
+  }
+
+  /** Resolves a texture origin sent by the webview, allowing only existing resource files. */
+  private async textureFile(origin: string): Promise<{ uri: vscode.Uri; kind: TextureFileKind }> {
+    const uri = vscode.Uri.parse(origin, true);
+    const ext = basename(uri).split('.').pop()?.toLowerCase() as TextureFileKind;
+    if (!['ytd', 'ydr', 'ydd', 'yft'].includes(ext)) throw new Error(`Not a texture container: ${basename(uri)}`);
+    await vscode.workspace.fs.stat(uri); // throws if it doesn't exist
+    return { uri, kind: ext };
+  }
+
+  private async getFullTexture(requestId: number, origin: string, name: string): Promise<void> {
+    try {
+      const { uri, kind } = await this.textureFile(origin);
+      const texture = readFullTexture(await vscode.workspace.fs.readFile(uri), kind, name);
+      this.post({ type: 'fullTexture', requestId, texture: { ...texture, origin } });
+    } catch (err) {
+      this.post({ type: 'fullTexture', requestId, error: (err as Error).message });
+    }
+  }
+
+  private async replaceTexture(m: Extract<WebviewToHost, { type: 'replaceTexture' }>): Promise<void> {
+    try {
+      const { uri, kind } = await this.textureFile(m.origin);
+      const file = basename(uri);
+      const choice = await vscode.window.showWarningMessage(
+        `Replace texture "${m.name}" in ${file}?`,
+        { modal: true, detail: `The image is resized to ${m.width}×${m.height} and re-encoded in the texture's current format. The original file is kept as ${file}.bak.` },
+        'Replace'
+      );
+      if (choice !== 'Replace') {
+        this.post({ type: 'textureReplaced', requestId: m.requestId, ok: false, cancelled: true });
+        return;
+      }
+      const original = await vscode.workspace.fs.readFile(uri);
+      const updated = replaceTexture(original, kind, m.name, m.rgba, m.width, m.height);
+      // Keep the first original as a backup; later saves don't overwrite it.
+      const backup = uri.with({ path: `${uri.path}.bak` });
+      try {
+        await vscode.workspace.fs.stat(backup);
+      } catch {
+        await vscode.workspace.fs.writeFile(backup, original);
+      }
+      await vscode.workspace.fs.writeFile(uri, updated);
+      this.post({ type: 'textureReplaced', requestId: m.requestId, ok: true, file });
+    } catch (err) {
+      this.post({ type: 'textureReplaced', requestId: m.requestId, ok: false, error: (err as Error).message });
+    }
+  }
+
+  private async exportDds(requestId: number, origin: string, name: string): Promise<void> {
+    try {
+      const { uri, kind } = await this.textureFile(origin);
+      const dds = exportDds(await vscode.workspace.fs.readFile(uri), kind, name);
+      await this.saveFile(requestId, `${name}.dds`, dds, 'DDS texture', ['dds']);
+    } catch (err) {
+      this.post({ type: 'saved', requestId, error: (err as Error).message });
+    }
+  }
+
+  private async saveFile(requestId: number, suggestedName: string, data: Uint8Array, filterName: string, extensions: string[]): Promise<void> {
+    try {
+      const target = await vscode.window.showSaveDialog({
+        defaultUri: vscode.Uri.joinPath(dirname(this.uri), suggestedName.replace(/[\\/:*?"<>|]/g, '_')),
+        filters: { [filterName]: extensions },
+      });
+      if (!target) {
+        this.post({ type: 'saved', requestId, cancelled: true });
+        return;
+      }
+      await vscode.workspace.fs.writeFile(target, data);
+      this.post({ type: 'saved', requestId, path: target.fsPath || target.path });
+    } catch (err) {
+      this.post({ type: 'saved', requestId, error: (err as Error).message });
     }
   }
 
@@ -405,6 +512,17 @@ class PreviewSession {
     const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytd: 'ytd' } as const)[ext];
     await vscode.commands.executeCommand('vscode.openWith', file.uri, VIEW_TYPES[kind]);
   }
+}
+
+function tagOrigin(textures: TextureData[], uri: vscode.Uri): TextureData[] {
+  const origin = uri.toString();
+  for (const t of textures) t.origin = origin;
+  return textures;
+}
+
+function withOrigin(drawables: DrawableData[], uri: vscode.Uri): DrawableData[] {
+  for (const d of drawables) tagOrigin(d.textures, uri);
+  return drawables;
 }
 
 function looksLikeXml(data: Uint8Array): boolean {

@@ -6,26 +6,19 @@ import type { DrawableData } from '../shared/model';
 const ROOT = 0x50000000;
 
 /**
- * Parses a .yft fragment (vehicles, breakable props). Returns the main
- * drawable first, then any extra drawables the fragment carries (the damaged
- * model, and the named drawable array used by some props).
+ * Pointers to every fragDrawable in a fragment: main, named array, and
+ * others referenced from the root (e.g. the damaged model), with names.
  */
-export function parseYft(file: Uint8Array, opts: DrawableOptions): DrawableData[] {
-  const r = new ResourceReader(readRsc7(file));
+export function fragmentDrawables(r: ResourceReader): { ptr: number; name: string }[] {
   const fragName = (r.string(r.ptr(ROOT + 0x58)) ?? '').replace(/^pack:\//i, '');
   const mainPtr = r.ptr(ROOT + 0x30);
-  const out: DrawableData[] = [];
+  const out: { ptr: number; name: string }[] = [];
   const seen = new Set<number>();
-
   const add = (ptr: number, name: string) => {
     if (!r.isValid(ptr) || seen.has(ptr)) return;
     seen.add(ptr);
-    const d = readDrawable(r, ptr, opts, 'frag');
-    // Fragment drawables are usually named "skel"; the fragment name is more useful.
-    d.name = name;
-    out.push(d);
+    out.push({ ptr, name });
   };
-
   add(mainPtr, fragName || 'fragment');
 
   // Named drawable array (e.g. alternative parts of some props).
@@ -54,4 +47,19 @@ export function parseYft(file: Uint8Array, opts: DrawableOptions): DrawableData[
     }
   }
   return out;
+}
+
+/**
+ * Parses a .yft fragment (vehicles, breakable props). Returns the main
+ * drawable first, then any extra drawables the fragment carries (the damaged
+ * model, and the named drawable array used by some props).
+ */
+export function parseYft(file: Uint8Array, opts: DrawableOptions): DrawableData[] {
+  const r = new ResourceReader(readRsc7(file));
+  return fragmentDrawables(r).map(({ ptr, name }) => {
+    const d = readDrawable(r, ptr, opts, 'frag');
+    // Fragment drawables are usually named "skel"; the fragment name is more useful.
+    d.name = name;
+    return d;
+  });
 }

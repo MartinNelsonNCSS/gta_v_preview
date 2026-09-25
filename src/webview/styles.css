@@ -325,6 +325,7 @@ input:focus {
   align-content: start;
 }
 .ytd-card {
+  position: relative;
   cursor: pointer;
   padding: 6px;
   border-radius: 4px;
@@ -624,6 +625,7 @@ input:focus {
   padding-bottom: 4px;
 }
 .variation {
+  position: relative;
   width: 96px;
   flex-shrink: 0;
   text-align: center;
@@ -642,4 +644,53 @@ input:focus {
   font-family: var(--vscode-editor-font-family, monospace);
   font-size: var(--vscode-editor-font-size, 12px);
   white-space: pre;
+}
+
+/* -- texture editing ------------------------------------------------------ */
+
+.edit-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.edit-actions .sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 4px;
+}
+.edit-status {
+  margin-left: 6px;
+}
+.badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 10px;
+  line-height: 16px;
+  text-transform: uppercase;
+  background: var(--vscode-badge-background, #4d4d4d);
+  color: var(--vscode-badge-foreground, #fff);
+  vertical-align: middle;
+}
+.thumb .badge,
+.ytd-card .badge,
+.variation .badge {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  margin: 0;
+}
+.thumb {
+  position: relative;
+}
+.tex-ref.clickable {
+  cursor: pointer;
+}
+.tex-ref.clickable:hover span:last-child {
+  text-decoration: underline;
 }

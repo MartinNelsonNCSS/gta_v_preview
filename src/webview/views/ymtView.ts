@@ -1,5 +1,6 @@
 import type { PedDrawable, PedSlot, TextureData, YmtData } from '../../shared/model';
 import { openLightbox, textureCanvas, textureDescription } from '../textureCanvas';
+import { pendingPreview } from '../textureEditor';
 import { h, hostRequest, newRequestId, vscode } from '../ui';
 import { jsonTree } from './jsonTree';
 import { ModelPanel } from './modelPanel';
@@ -168,11 +169,24 @@ class SlotBrowser {
         c.card.title = reply.error ?? `${base}.ytd is empty`;
         continue;
       }
-      c.holder.replaceChildren(textureCanvas(tex, 96));
-      c.card.title = `${base}.ytd\n${tex.name} · ${textureDescription(tex)}\nClick to apply · double-click to enlarge`;
-      c.card.onclick = () => this.applyVariation(tex, c.card);
-      c.card.ondblclick = () => openLightbox(tex, `${base}.ytd`);
-      if (!this.activeTexture) this.applyVariation(tex, c.card);
+      const current = () => pendingPreview(tex) ?? tex;
+      const draw = () => {
+        c.holder.replaceChildren(textureCanvas(current(), 96));
+        c.card.querySelector('.badge')?.remove();
+        if (current() !== tex) c.card.prepend(h('span', { class: 'badge' }, 'preview'));
+      };
+      draw();
+      c.card.title = `${base}.ytd\n${tex.name} · ${textureDescription(tex)}\nClick to apply · double-click to view, replace or export`;
+      c.card.onclick = () => this.applyVariation(current(), c.card);
+      c.card.ondblclick = () =>
+        openLightbox(tex, `${base}.ytd`, {
+          original: tex,
+          setPreview: () => {
+            draw();
+            this.applyVariation(current(), c.card);
+          },
+        });
+      if (!this.activeTexture) this.applyVariation(current(), c.card);
     }
   }
 

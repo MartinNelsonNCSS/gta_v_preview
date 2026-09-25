@@ -23,6 +23,8 @@ export interface TextureData {
   levels: number;
   /** Missing when the texture is only a reference to an external dictionary. */
   pixels?: TexturePixels;
+  /** URI of the file that contains this texture (set by the extension host). */
+  origin?: string;
 }
 
 export interface ShaderTextureRef {
@@ -277,6 +279,10 @@ export type HostToWebview =
   | { type: 'text'; file: string; text: string; note: string }
   | { type: 'drawableFile'; requestId: number; drawables: DrawableData[]; error?: string }
   | { type: 'textureFile'; requestId: number; textures: TextureData[]; error?: string }
+  | { type: 'pickedImage'; requestId: number; name?: string; data?: Uint8Array }
+  | { type: 'fullTexture'; requestId: number; texture?: TextureData; error?: string }
+  | { type: 'textureReplaced'; requestId: number; ok: boolean; cancelled?: boolean; error?: string; file?: string }
+  | { type: 'saved'; requestId: number; path?: string; cancelled?: boolean; error?: string }
   | { type: 'textures'; requestId: number; textures: TextureData[]; source: string; searched: number; done: boolean }
   | {
       type: 'archetypeModels';
@@ -299,4 +305,14 @@ export type WebviewToHost =
   | { type: 'loadDrawableFile'; requestId: number; name: string; maxTextureSize?: number }
   /** Loads every texture in a .ytd found by base name. */
   | { type: 'loadTextureFile'; requestId: number; name: string; maxSize?: number }
-  | { type: 'openAsText' };
+  | { type: 'openAsText' }
+  /** Opens a file picker for a replacement image (PNG/JPG/DDS...). */
+  | { type: 'pickImage'; requestId: number }
+  /** Full-resolution texture from the file at `origin`. */
+  | { type: 'getFullTexture'; requestId: number; origin: string; name: string }
+  /** Writes `rgba` (exactly the texture's size) into the file at `origin`, after confirmation. */
+  | { type: 'replaceTexture'; requestId: number; origin: string; name: string; rgba: Uint8Array; width: number; height: number }
+  /** Saves the texture's original data as .dds (via a save dialog). */
+  | { type: 'exportDds'; requestId: number; origin: string; name: string }
+  /** Saves bytes produced by the webview (e.g. a PNG) via a save dialog. */
+  | { type: 'saveFile'; requestId: number; suggestedName: string; data: Uint8Array; filterName: string; extensions: string[] };

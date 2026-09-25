@@ -12,6 +12,7 @@ import {
 } from '../scene';
 import { openLightbox, textureCanvas, textureDescription } from '../textureCanvas';
 import { buildCollision } from '../collision';
+import { originName } from '../textureEditor';
 import { checkbox, cutSlider, fmt, h, newRequestId, onHostMessage, pref, select, setPref, vscode } from '../ui';
 import { Viewer } from '../viewer';
 
@@ -172,6 +173,15 @@ export class ModelPanel {
     this.renderSidebar();
   }
 
+  /** Opens the texture viewer with replace/export actions for texture `key`. */
+  private openTexture(key: string): void {
+    const info = this.store.info(key);
+    const original = this.store.original(key);
+    if (!info || !original) return;
+    const source = info.source === 'embedded' ? `embedded in ${originName(original) || 'this file'}` : info.source;
+    openLightbox(original, source, { original, setPreview: (p) => this.store.setPreview(key, p) });
+  }
+
   /** Applies the variation texture to shaders that take their colour from a variation .ytd. */
   private withVariation(d: DrawableData): DrawableData {
     const key = this.variationKey;
@@ -296,9 +306,14 @@ export class ModelPanel {
             const state = found?.data.pixels ? 'ok' : found ? 'ref' : 'missing';
             return h(
               'div',
-              { class: `tex-ref ${state}`, title: found ? `${found.source === 'embedded' ? 'Embedded' : `From ${found.source}`}` : 'Not found' },
+              {
+                class: `tex-ref ${state}${found?.data.pixels ? ' clickable' : ''}`,
+                title: found ? `${found.source === 'embedded' ? 'Embedded' : `From ${found.source}`}${found.data.pixels ? ' · click to view, replace or export' : ''}` : 'Not found',
+                onclick: found?.data.pixels ? () => this.openTexture(t.texture) : undefined,
+              },
               h('span', { class: 'param' }, t.param),
-              h('span', null, t.texture)
+              h('span', null, t.texture),
+              found?.preview ? h('span', { class: 'badge' }, 'preview') : null
             );
           })
         )
@@ -312,14 +327,15 @@ export class ModelPanel {
       h(
         'div',
         { class: 'thumbs' },
-        textures.map(({ data, source }) =>
+        textures.map(({ key, data, source, preview }) =>
           h(
             'div',
             {
               class: 'thumb',
-              title: `${data.name}\n${textureDescription(data)}\n${source === 'embedded' ? 'Embedded' : `From ${source}`}`,
-              onclick: () => openLightbox(data, source === 'embedded' ? 'embedded' : source),
+              title: `${data.name}\n${textureDescription(data)}\n${source === 'embedded' ? 'Embedded' : `From ${source}`}\nClick to view, replace or export`,
+              onclick: () => this.openTexture(key),
             },
+            preview ? h('span', { class: 'badge' }, 'preview') : null,
             h('div', { class: 'checker thumb-image' }, textureCanvas(data, 96)),
             h('div', { class: 'thumb-name' }, data.name.replace(/^__variation__\/[^/]*\//, ''))
           )
