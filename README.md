@@ -17,6 +17,16 @@ Everything is implemented in TypeScript (RSC7 decompression, drawable/meta parsi
 so there are no native binaries or external tools like CodeWalker. It works the same on Windows, macOS, Linux,
 Remote/WSL, and in vscode.dev.
 
+## Install
+
+- **VS Code:** search for "GTA V Asset Preview" in the Extensions view, or install
+  [`ncss-ltd.gta-v-asset-preview`](https://marketplace.visualstudio.com/items?itemName=ncss-ltd.gta-v-asset-preview)
+  from the Marketplace.
+- **Cursor, VSCodium, Windsurf and other forks:** install it from
+  [Open VSX](https://open-vsx.org/extension/ncss-ltd/gta-v-asset-preview).
+- **Manually:** download the `.vsix` from the [releases page](https://github.com/MartinNelsonNCSS/gta_v_preview/releases),
+  then use **Extensions → ··· → Install from VSIX…**.
+
 ## Usage
 
 Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file. The preview opens automatically.
@@ -76,7 +86,13 @@ Other tools:
   (with a stubbed `vscode` module) at <http://localhost:5178>. This makes UI work fast to iterate on.
 - `npm run hosttest -- path/to/file.ytyp` runs the real extension-host code under Node (with a stubbed `vscode`
   module) and reports what it would send to the webview: texture search results, MLO models found, etc.
-- `npm run package` builds a `.vsix`. To publish to the Marketplace, set `publisher` in `package.json` to your publisher ID.
+- `npm run package` builds a `.vsix`.
+
+### Releasing
+
+Bump `version` in `package.json`, add a `CHANGELOG.md` entry, commit, then push a tag (`git tag v1.2.3 && git push origin v1.2.3`).
+The release workflow builds the `.vsix`, attaches it to a GitHub release, and publishes it to the Marketplace and
+Open VSX when the `VSCE_PAT` / `OVSX_PAT` repository secrets are set.
 
 ### Layout
 

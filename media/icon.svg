@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1d2430"/>
+      <stop offset="1" stop-color="#10141a"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ff0c2"/>
+      <stop offset="1" stop-color="#3fd3a0"/>
+    </linearGradient>
+    <linearGradient id="left" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2aa7d8"/>
+      <stop offset="1" stop-color="#1c6f9c"/>
+    </linearGradient>
+    <linearGradient id="right" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2bbf8e"/>
+      <stop offset="1" stop-color="#1a8a68"/>
+    </linearGradient>
+  </defs>
+  <rect x="8" y="8" width="240" height="240" rx="52" fill="url(#bg)"/>
+  <!-- orbit ring (behind the cube) -->
+  <ellipse cx="128" cy="140" rx="104" ry="34" fill="none" stroke="#4fc3f7" stroke-opacity="0.55" stroke-width="7" transform="rotate(-18 128 140)"/>
+  <!-- cube -->
+  <polygon points="128,62 190,97 128,132 66,97" fill="url(#top)"/>
+  <polygon points="66,97 128,132 128,204 66,169" fill="url(#left)"/>
+  <polygon points="128,132 190,97 190,169 128,204" fill="url(#right)"/>
+  <polyline points="66,97 128,132 190,97 M128,132" fill="none" stroke="#ffffff" stroke-opacity="0.35" stroke-width="3" stroke-linejoin="round"/>
+  <line x1="128" y1="132" x2="128" y2="204" stroke="#ffffff" stroke-opacity="0.35" stroke-width="3"/>
+  <polygon points="128,62 190,97 190,169 128,204 66,169 66,97" fill="none" stroke="#ffffff" stroke-opacity="0.5" stroke-width="3" stroke-linejoin="round"/>
+  <!-- front part of the orbit ring -->
+  <path d="M 36.5 187 A 104 34 -18 0 0 229 124" fill="none" stroke="#4fc3f7" stroke-width="7" stroke-linecap="round" transform="rotate(0)"/>
+</svg>

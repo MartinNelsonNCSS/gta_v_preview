@@ -1,6 +1,11 @@
 name: Release
 
-# Push a tag like v0.1.0 to build the .vsix and publish it as a GitHub release.
+# Push a tag like v0.1.0 to build the .vsix, publish it as a GitHub release and,
+# when the tokens are configured, publish it to the VS Code Marketplace and Open VSX.
+#
+# Repository secrets (Settings → Secrets and variables → Actions):
+#   VSCE_PAT  Azure DevOps personal access token with the Marketplace → Manage scope
+#   OVSX_PAT  Open VSX access token (https://open-vsx.org/user-settings/tokens)
 on:
   push:
     tags: ['v*']
@@ -12,6 +17,9 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      VSCE_PAT: ${{ secrets.VSCE_PAT }}
+      OVSX_PAT: ${{ secrets.OVSX_PAT }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -20,14 +28,23 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run package
-      - name: Publish release
+      - name: Find package
+        run: echo "VSIX=$(ls *.vsix)" >> "$GITHUB_ENV"
+
+      - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          VSIX=$(ls *.vsix)
           gh release create "$GITHUB_REF_NAME" "$VSIX" \
             --title "$GITHUB_REF_NAME" \
-            --prerelease \
-            --notes "Install in VS Code: Extensions view → \`...\` menu → **Install from VSIX...** and pick \`$VSIX\`, or run \`code --install-extension $VSIX\`.
+            --notes "Install from the VS Code Marketplace (\`ncss-ltd.gta-v-asset-preview\`), Open VSX, or download \`$VSIX\` below and use Extensions → \`...\` → **Install from VSIX...**.
 
-          Previews .ydr, .ydd, .ytyp (including MLO interiors) and .ytd files. See the README for details and limitations."
+          See the [changelog](https://github.com/MartinNelsonNCSS/gta_v_preview/blob/main/CHANGELOG.md) for what's new."
+
+      - name: Publish to VS Code Marketplace
+        if: env.VSCE_PAT != ''
+        run: npx vsce publish --packagePath "$VSIX" --pat "$VSCE_PAT"
+
+      - name: Publish to Open VSX
+        if: env.OVSX_PAT != ''
+        run: npx --yes ovsx publish "$VSIX" --pat "$OVSX_PAT"

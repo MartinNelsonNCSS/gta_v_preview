@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.3
+
+- Published under the `ncss-ltd` publisher, with an extension icon.
+- Releases publish to the VS Code Marketplace and Open VSX automatically.
+
 ## 0.4.2
 
 - Relicensed under the GNU General Public License v3.0 (GPL-3.0-only).
