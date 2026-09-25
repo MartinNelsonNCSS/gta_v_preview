@@ -35,6 +35,11 @@ export function mipLevelsFor(format: EncodableFormat, width: number, height: num
   return Math.max(1, Math.min(13, Math.floor(Math.log2(blocks ? min / 4 : min)) + 1));
 }
 
+/** The most mip levels a w×h texture can have (down to 1×1). */
+export function maxMipLevels(width: number, height: number): number {
+  return Math.floor(Math.log2(Math.max(width, height))) + 1;
+}
+
 /** Total bytes of a full mip chain generated for `format` at w×h. */
 export function mipChainSize(format: EncodableFormat, w: number, h: number, levels = mipLevelsFor(format, w, h)): number {
   let size = 0;

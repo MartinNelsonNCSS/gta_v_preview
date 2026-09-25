@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.0
+
+- **Convert to DDS…**: convert PNG/JPG/WebP/BMP/GIF/DDS images to `.dds` (DXT1/DXT5/BC4/BC5/uncompressed) with generated mipmaps, from the Explorer context menu or command palette.
+- Mipmap count when saving textures (1 up to the full chain).
+- Replacing with a matching `.dds` keeps its data and mipmaps as-is; BC7 can be stored this way.
+- Export DDS uses the chosen size/format/mips (or the exact original data when unchanged).
+
 ## 0.7.0
 
 - Change texture format (DXT1/3/5, BC4/5, uncompressed); BC7 textures can be converted to another format.

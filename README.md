@@ -52,19 +52,25 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
 - **Replacing and exporting textures**: click any texture (sidebar thumbnail, shader texture name, `.ytd` card, or a
   `.ymt` variation via double-click) to open the viewer:
   - **Replace…** picks a PNG/JPG/WebP/BMP/DDS and previews it on the model straight away. Nothing is written yet.
-  - **Size** and **Format** pick the resolution and compression to save with (they also work on their own, to rescale
-    or convert the existing texture). Formats: DXT1/3/5, BC4, BC5, A8R8G8B8, A8B8G8R8, X8R8G8B8, L8 and A8. The preview
+  - **Size**, **Format** and **Mips** pick the resolution, compression and number of mipmap levels to save with (they
+    also work on their own, to rescale or convert the existing texture, or add/remove mipmaps). Formats: DXT1/3/5, BC4, BC5, A8R8G8B8, A8B8G8R8, X8R8G8B8, L8 and A8. The preview
     shows the real compression result, and the viewer shows the resulting data size.
     - In a `.ytd`, anything goes: when the new data doesn't fit, the `.ytd` is rebuilt with a fresh page layout.
     - Embedded in a `.ydr`/`.ydd`/`.yft`, the new data must fit in the texture's existing space (e.g. DXT5 → DXT1, or
       DXT1 → DXT5 at half size). Sizes that won't fit are greyed out.
-    - BC7 textures can be converted to another format; saving as BC7 isn't supported.
+    - Replacing with a `.dds` whose format and size match keeps its data as-is, including its own mipmaps (no
+      re-encoding). This is also the way to store BC7: replace with a BC7 `.dds`.
+    - BC7 textures can be converted to another format.
   - **Save to file** writes it into the file the texture actually lives in (the `.ytd`, or the `.ydr`/`.ydd`/`.yft` that
     embeds it), after confirmation. The image is re-encoded in the texture's current format (DXT1/3/5, BC4/5 or
     uncompressed) with a full mip chain. The first time a file is changed, the original is kept next to it as
     `<file>.bak`.
-  - **Revert** discards an unsaved replacement. **Export PNG** / **Export DDS** save the original texture (DDS keeps
-    the exact compressed data and mips).
+  - **Revert** discards an unsaved change. **Export PNG** / **Export DDS** save the texture: DDS exports the exact
+    original data, or, when you've changed size/format/mips, a DDS encoded with those settings.
+- **Converting images to DDS**: right-click one or more PNG/JPG/WebP/BMP/GIF/DDS files in the Explorer and choose
+  **Convert to DDS…** (or run **GTA V: Convert to DDS…** from the command palette). Pick the format (DXT1, DXT5, ...),
+  mipmaps (full chain, down to 4×4, or none) and size (original, nearest power of two, or a maximum), check the
+  preview, and convert. Each `.dds` is written next to its source image.
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
@@ -80,7 +86,7 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
 - **FiveM escrow (`FXAP`) files are encrypted** and can't be previewed. The editor says so when you open one.
 - Gen9 / Enhanced-edition (`RSC8`) resources and PSO-format (binary `PSIN`) `.ymt` files aren't supported yet.
 - Textures embedded in `.ydr`/`.ydd`/`.yft` can't grow beyond their current data size; move them to a `.ytd` for
-  that. Saving as BC7 or 16-bit formats isn't supported. Power-of-two sizes are the safest choice for the game.
+  that. Encoding to BC7 or 16-bit formats isn't supported (BC7 can be stored from a BC7 `.dds`). Power-of-two sizes are the safest choice for the game.
 - `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is drawn as neutral grey and
   shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.

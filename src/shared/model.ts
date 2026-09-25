@@ -283,6 +283,9 @@ export type HostToWebview =
   | { type: 'fullTexture'; requestId: number; texture?: TextureData; error?: string }
   | { type: 'textureReplaced'; requestId: number; ok: boolean; cancelled?: boolean; error?: string; file?: string }
   | { type: 'saved'; requestId: number; path?: string; cancelled?: boolean; error?: string }
+  /** Images to convert in the DDS converter panel. */
+  | { type: 'converterFiles'; files: { name: string; uri: string; data: Uint8Array }[] }
+  | { type: 'converted'; requestId: number; ok: boolean; path?: string; skipped?: boolean; replaceAll?: boolean; error?: string }
   | { type: 'textures'; requestId: number; textures: TextureData[]; source: string; searched: number; done: boolean }
   | {
       type: 'archetypeModels';
@@ -311,8 +314,22 @@ export type WebviewToHost =
   /** Full-resolution texture from the file at `origin`. */
   | { type: 'getFullTexture'; requestId: number; origin: string; name: string }
   /** Writes `rgba` (exactly the texture's size) into the file at `origin`, after confirmation. */
-  | { type: 'replaceTexture'; requestId: number; origin: string; name: string; rgba: Uint8Array; width: number; height: number; format?: string }
+  | {
+      type: 'replaceTexture';
+      requestId: number;
+      origin: string;
+      name: string;
+      width: number;
+      height: number;
+      format?: string;
+      levels?: number;
+      /** Pixels to encode, or `encoded` data (all mips) to store as-is. */
+      rgba?: Uint8Array;
+      encoded?: Uint8Array;
+    }
   /** Saves the texture's original data as .dds (via a save dialog). */
   | { type: 'exportDds'; requestId: number; origin: string; name: string }
   /** Saves bytes produced by the webview (e.g. a PNG) via a save dialog. */
-  | { type: 'saveFile'; requestId: number; suggestedName: string; data: Uint8Array; filterName: string; extensions: string[] };
+  | { type: 'saveFile'; requestId: number; suggestedName: string; data: Uint8Array; filterName: string; extensions: string[] }
+  /** Writes a converted .dds next to its source image (asking before replacing unless `overwrite`). */
+  | { type: 'writeConverted'; requestId: number; sourceUri: string; data: Uint8Array; overwrite: boolean; format: string };

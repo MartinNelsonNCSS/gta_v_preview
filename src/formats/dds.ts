@@ -86,9 +86,20 @@ export interface DdsImage {
   height: number;
   /** Top mip level only. */
   data: Uint8Array;
+  /** Mip levels present in the file. */
+  levels: number;
+  /** All mip levels back to back (the file's own mipmaps). */
+  allLevels: Uint8Array;
 }
 
-/** Reads the top mip of a .dds file in one of the supported formats. */
+/** Byte size of one level of `format` (undefined for unsupported formats). */
+export function ddsLevelSize(format: string, width: number, height: number): number | undefined {
+  const pf = PIXEL_FORMATS[format];
+  if (!pf) return undefined;
+  return pf.blockBytes ? Math.max(1, (width + 3) >> 2) * Math.max(1, (height + 3) >> 2) * pf.blockBytes : width * height * (pf.pixelBytes ?? 4);
+}
+
+/** Reads a .dds file in one of the supported formats, including its mipmaps. */
 export function parseDds(file: Uint8Array): DdsImage {
   const v = new DataView(file.buffer, file.byteOffset, file.byteLength);
   if (file.length < 128 || v.getUint32(0, true) !== fourCC('DDS ')) throw new ResourceError('Not a DDS file.');
@@ -124,9 +135,17 @@ export function parseDds(file: Uint8Array): DdsImage {
   }
   const pf = format ? PIXEL_FORMATS[format] : undefined;
   if (!format || !pf) throw new ResourceError('This DDS format is not supported.');
-  const size = pf.blockBytes
-    ? Math.max(1, (width + 3) >> 2) * Math.max(1, (height + 3) >> 2) * pf.blockBytes
-    : width * height * (pf.pixelBytes ?? 4);
+  const size = ddsLevelSize(format, width, height)!;
   if (offset + size > file.length) throw new ResourceError('The DDS file is truncated.');
-  return { format, width, height, data: file.slice(offset, offset + size) };
+  // Mips: count from the header (if flagged), clamped to what's actually in the file.
+  const declared = v.getUint32(8, true) & DDSD_MIPMAPCOUNT ? Math.max(1, v.getUint32(28, true)) : 1;
+  let levels = 0;
+  let total = 0;
+  for (let i = 0, w = width, h = height; i < Math.min(declared, 16); i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) {
+    const lv = ddsLevelSize(format, w, h)!;
+    if (offset + total + lv > file.length) break;
+    total += lv;
+    levels++;
+  }
+  return { format, width, height, data: file.slice(offset, offset + size), levels, allLevels: file.slice(offset, offset + total) };
 }

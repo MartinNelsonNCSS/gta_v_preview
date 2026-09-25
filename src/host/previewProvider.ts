@@ -73,16 +73,22 @@ export class GtaPreviewProvider implements vscode.CustomReadonlyEditorProvider<P
   }
 
   private html(webview: vscode.Webview, dist: vscode.Uri): string {
-    const nonce = makeNonce();
-    const script = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.js'));
-    const style = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.css'));
-    const csp = [
-      "default-src 'none'",
-      `img-src ${webview.cspSource} data: blob:`,
-      `style-src ${webview.cspSource} 'unsafe-inline'`,
-      `script-src 'nonce-${nonce}'`,
-    ].join('; ');
-    return `<!DOCTYPE html>
+    return webviewHtml(webview, dist, this.kind);
+  }
+}
+
+/** The shared webview page; `kind` tells the page which view to show. */
+export function webviewHtml(webview: vscode.Webview, dist: vscode.Uri, kind: string): string {
+  const nonce = makeNonce();
+  const script = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.js'));
+  const style = webview.asWebviewUri(vscode.Uri.joinPath(dist, 'webview.css'));
+  const csp = [
+    "default-src 'none'",
+    `img-src ${webview.cspSource} data: blob:`,
+    `style-src ${webview.cspSource} 'unsafe-inline'`,
+    `script-src 'nonce-${nonce}'`,
+  ].join('; ');
+  return `<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
@@ -90,12 +96,11 @@ export class GtaPreviewProvider implements vscode.CustomReadonlyEditorProvider<P
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <link rel="stylesheet" href="${style}">
 </head>
-<body data-kind="${this.kind}">
+<body data-kind="${kind}">
 <div id="app"></div>
 <script nonce="${nonce}" src="${script}"></script>
 </body>
 </html>`;
-  }
 }
 
 /** Handles one open preview: loads the file and answers webview requests. */
@@ -454,7 +459,9 @@ class PreviewSession {
         `Replace texture "${m.name}" in ${file}?`,
         {
           modal: true,
-          detail: `The texture is saved at ${m.width}×${m.height}${m.format ? ` as ${m.format}` : ' in its current format'}, with a full set of mipmaps. The original file is kept as ${file}.bak.`,
+          detail: `The texture is saved at ${m.width}×${m.height}${m.format ? ` as ${m.format}` : ' in its current format'}${
+            m.levels ? ` with ${m.levels} mip level${m.levels === 1 ? '' : 's'}` : ''
+          }${m.encoded ? ' (using the DDS data as-is)' : ''}. The original file is kept as ${file}.bak.`,
         },
         'Replace'
       );
@@ -463,7 +470,14 @@ class PreviewSession {
         return;
       }
       const original = await vscode.workspace.fs.readFile(uri);
-      const updated = replaceTexture(original, kind, m.name, m.rgba, m.width, m.height, m.format);
+      const updated = replaceTexture(original, kind, m.name, {
+        width: m.width,
+        height: m.height,
+        format: m.format,
+        levels: m.levels,
+        rgba: m.rgba,
+        encoded: m.encoded,
+      });
       // Keep the first original as a backup; later saves don't overwrite it.
       const backup = uri.with({ path: `${uri.path}.bak` });
       try {

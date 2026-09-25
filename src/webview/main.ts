@@ -6,6 +6,7 @@ import { ytypView } from './views/ytypView';
 import { ybnView } from './views/ybnView';
 import { ymapView } from './views/ymapView';
 import { textView, ymtView } from './views/ymtView';
+import { converterView } from './views/converterView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
@@ -46,6 +47,9 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'text':
       show(textView(m.file, m.text, m.note));
+      break;
+    case 'converterFiles':
+      show(converterView(m.files));
       break;
     case 'error':
       if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message));

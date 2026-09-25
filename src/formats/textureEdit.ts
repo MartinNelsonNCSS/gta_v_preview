@@ -2,7 +2,7 @@ import { deflateSync } from 'fflate';
 import { ResourceReader } from './reader';
 import { readRsc7, ResourceError } from './rsc7';
 import { formatCode, readTexture, textureDataSize } from './textures';
-import { encodeMipChain, EncodableFormat, isBlockFormat, isEncodable, mipLevelsFor } from './bcEncode';
+import { encodeMipChain, isBlockFormat, isEncodable, maxMipLevels, mipLevelsFor } from './bcEncode';
 import { packSegment } from './resourceBuilder';
 import { fragmentDrawables } from './yft';
 import { buildDds } from './dds';
@@ -98,65 +98,77 @@ export function exportDds(file: Uint8Array, kind: TextureFileKind, name: string)
   return buildDds(t.formatName, t.width, t.height, t.levels, r.bytes(t.dataPtr, t.size));
 }
 
+/** A replacement for a texture: either RGBA pixels to encode, or data already in `format`. */
+export interface ReplacementImage {
+  width: number;
+  height: number;
+  /** Target format (default: the texture's current format). */
+  format?: string;
+  /** Mip levels to store (default: the texture's own count if size/format are unchanged, else a full chain). */
+  levels?: number;
+  /** Top-level RGBA pixels (width×height×4) to encode. */
+  rgba?: Uint8Array;
+  /** Already-encoded data for all `levels` mips (e.g. from a .dds); used as-is. */
+  encoded?: Uint8Array;
+}
+
 /**
- * Returns a copy of `file` with texture `name` replaced by `rgba` (width×height),
- * encoded as `format` (default: the texture's current format).
+ * Returns a copy of `file` with texture `name` replaced.
  *
- * - Same size and format: pixel data is rewritten in place.
- * - Anything whose data fits in the texture's existing space (smaller sizes,
- *   more compact formats): written in place in any file type.
+ * - Same size, format and mip count: data is rewritten in place.
+ * - Anything whose data fits in the texture's existing space: written in place
+ *   in any file type (smaller sizes, more compact formats, fewer mips).
  * - Anything bigger: only for .ytd, which is rebuilt with a new page layout.
- *
- * A full mip chain is generated.
  */
-export function replaceTexture(
-  file: Uint8Array,
-  kind: TextureFileKind,
-  name: string,
-  rgba: Uint8Array,
-  width: number,
-  height: number,
-  format?: string
-): Uint8Array {
+export function replaceTexture(file: Uint8Array, kind: TextureFileKind, name: string, image: ReplacementImage): Uint8Array {
   const res = readRsc7(file);
   const r = new ResourceReader(res);
   const loc = findTexture(r, kind, name);
   const t = rawTexture(r, loc);
-  const target = format ?? t.formatName;
-  if (!isEncodable(target)) {
-    throw new ResourceError(`Writing ${target} textures isn't supported; choose another format (${t.name}).`);
-  }
-  if (rgba.length !== width * height * 4) throw new ResourceError('Image data does not match its size.');
+  const { width, height } = image;
+  const target = image.format ?? t.formatName;
+  const code = formatCode(target);
+  if (code === undefined) throw new ResourceError(`Unknown texture format ${target}.`);
   if (isBlockFormat(target) && (width % 4 || height % 4)) {
     throw new ResourceError(`${target} textures need a width and height that are multiples of 4.`);
   }
+  const unchanged = target === t.formatName && width === t.width && height === t.height;
+  const levels = image.levels ?? (unchanged ? t.levels : isEncodable(target) ? mipLevelsFor(target, width, height) : 1);
+  if (levels < 1 || levels > maxMipLevels(width, height)) throw new ResourceError(`A ${width}×${height} texture can have 1–${maxMipLevels(width, height)} mip levels (got ${levels}).`);
 
-  if (target === t.formatName && width === t.width && height === t.height) {
-    const encoded = encodeMipChain(target, rgba, width, height, t.levels);
-    if (encoded.length !== t.size) throw new ResourceError('Encoded size mismatch; the texture was not replaced.');
-    r.bytes(t.dataPtr, t.size).set(encoded);
-    return repack(file, res);
+  let data: Uint8Array;
+  const expected = textureDataSize(code, width, height, levels)!;
+  if (image.encoded) {
+    if (image.encoded.length < expected) throw new ResourceError(`The supplied ${target} data is too short for ${width}×${height} with ${levels} mips.`);
+    data = image.encoded.subarray(0, expected);
+  } else {
+    if (!isEncodable(target)) throw new ResourceError(`Encoding ${target} isn't supported; choose another format, or replace with a ${target} .dds (${t.name}).`);
+    if (!image.rgba || image.rgba.length !== width * height * 4) throw new ResourceError('Image data does not match its size.');
+    data = encodeMipChain(target, image.rgba, width, height, levels);
   }
 
-  const levels = mipLevelsFor(target, width, height);
-  const encoded = encodeMipChain(target, rgba, width, height, levels);
-  if (encoded.length <= t.size) {
+  if (unchanged && levels === t.levels) {
+    r.bytes(t.dataPtr, t.size).set(data);
+    return repack(file, res);
+  }
+  if (data.length <= t.size) {
     // Fits in the texture's existing data block: write in place, leaving the rest unused.
-    r.bytes(t.dataPtr, encoded.length).set(encoded);
+    r.bytes(t.dataPtr, data.length).set(data);
     writeTextureHeader(r.bytes(loc.ptr, 0x90), target, width, height, levels, t.dataPtr);
     return repack(file, res);
   }
-
   if (kind !== 'ytd') {
     throw new ResourceError(
-      `${width}×${height} ${target} needs ${kb(encoded.length)}, but this texture only has ${kb(t.size)} inside the .${kind}. ` +
-        'Choose a smaller size or a more compact format, or move the texture to a .ytd.'
+      `${width}×${height} ${target} with ${levels} mips needs ${sizes(data.length, t.size)[0]}, but this texture only has ${sizes(data.length, t.size)[1]} inside the .${kind}. ` +
+        'Choose a smaller size, a more compact format or fewer mips, or move the texture to a .ytd.'
     );
   }
-  return rebuildYtd(file, r, t.name, { width, height, levels, format: target, data: encoded });
+  return rebuildYtd(file, r, t.name, { width, height, levels, format: target, data });
 }
 
 const kb = (n: number) => `${Math.ceil(n / 1024).toLocaleString()} KB`;
+/** Two sizes for a message; exact bytes when they'd round to the same KB. */
+const sizes = (a: number, b: number) => (kb(a) === kb(b) ? [`${a.toLocaleString()} bytes`, `${b.toLocaleString()} bytes`] : [kb(a), kb(b)]);
 
 /** Bytes per pixel row (the texture "stride" field). */
 function strideFor(format: string, width: number): number {

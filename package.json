@@ -7,7 +7,7 @@
     "color": "#10141a",
     "theme": "dark"
   },
-  "version": "0.7.0",
+  "version": "0.8.0",
   "publisher": "ncss-ltd",
   "license": "GPL-3.0-only",
   "repository": {
@@ -162,6 +162,22 @@
           "description": "Largest texture dimension to decode. Bigger textures use a smaller mip level, which keeps previews fast."
         }
       }
+    },
+    "commands": [
+      {
+        "command": "gtaPreview.convertToDds",
+        "title": "Convert to DDS\u2026",
+        "category": "GTA V"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "gtaPreview.convertToDds",
+          "when": "resourceExtname =~ /^\\.(png|jpe?g|webp|bmp|gif|dds)$/i",
+          "group": "7_modification@90"
+        }
+      ]
     }
   },
   "scripts": {
