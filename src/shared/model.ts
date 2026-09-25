@@ -311,7 +311,7 @@ export type WebviewToHost =
   /** Full-resolution texture from the file at `origin`. */
   | { type: 'getFullTexture'; requestId: number; origin: string; name: string }
   /** Writes `rgba` (exactly the texture's size) into the file at `origin`, after confirmation. */
-  | { type: 'replaceTexture'; requestId: number; origin: string; name: string; rgba: Uint8Array; width: number; height: number }
+  | { type: 'replaceTexture'; requestId: number; origin: string; name: string; rgba: Uint8Array; width: number; height: number; format?: string }
   /** Saves the texture's original data as .dds (via a save dialog). */
   | { type: 'exportDds'; requestId: number; origin: string; name: string }
   /** Saves bytes produced by the webview (e.g. a PNG) via a save dialog. */

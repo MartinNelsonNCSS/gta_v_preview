@@ -14,6 +14,39 @@ export function isEncodable(format: string): format is EncodableFormat {
   return ['DXT1', 'DXT3', 'DXT5', 'BC4', 'BC5', 'A8R8G8B8', 'X8R8G8B8', 'A8B8G8R8', 'A8', 'L8'].includes(format);
 }
 
+/** Formats that can be written, with a short description for the UI. */
+export const ENCODABLE_FORMATS: { format: EncodableFormat; label: string }[] = [
+  { format: 'DXT1', label: 'DXT1 / BC1 — colour, 1-bit alpha (smallest)' },
+  { format: 'DXT3', label: 'DXT3 / BC2 — colour, sharp 4-bit alpha' },
+  { format: 'DXT5', label: 'DXT5 / BC3 — colour, smooth alpha' },
+  { format: 'BC4', label: 'BC4 (ATI1) — single channel (red)' },
+  { format: 'BC5', label: 'BC5 (ATI2) — two channels (red, green)' },
+  { format: 'A8R8G8B8', label: 'A8R8G8B8 — uncompressed with alpha' },
+  { format: 'A8B8G8R8', label: 'A8B8G8R8 — uncompressed with alpha (RGBA order)' },
+  { format: 'X8R8G8B8', label: 'X8R8G8B8 — uncompressed, no alpha' },
+  { format: 'L8', label: 'L8 — uncompressed greyscale' },
+  { format: 'A8', label: 'A8 — uncompressed alpha only' },
+];
+
+/** Number of mips to generate: down to 4px for block formats, 1px otherwise. */
+export function mipLevelsFor(format: EncodableFormat, width: number, height: number): number {
+  const min = Math.min(width, height);
+  const blocks = !/^(A8R8G8B8|X8R8G8B8|A8B8G8R8|A8|L8)$/.test(format);
+  return Math.max(1, Math.min(13, Math.floor(Math.log2(blocks ? min / 4 : min)) + 1));
+}
+
+/** Total bytes of a full mip chain generated for `format` at w×h. */
+export function mipChainSize(format: EncodableFormat, w: number, h: number, levels = mipLevelsFor(format, w, h)): number {
+  let size = 0;
+  for (let i = 0; i < levels; i++, w = Math.max(1, w >> 1), h = Math.max(1, h >> 1)) size += encodedSize(format, w, h);
+  return size;
+}
+
+/** Whether a format stores data in 4×4 blocks (so sizes must be multiples of 4). */
+export function isBlockFormat(format: string): boolean {
+  return !/^(A8R8G8B8|X8R8G8B8|A8B8G8R8|A8|L8|R5G6B5|A1R5G5B5)$/.test(format);
+}
+
 /** Byte size of one mip level in `format`. */
 export function encodedSize(format: EncodableFormat, w: number, h: number): number {
   const blocks = Math.max(1, (w + 3) >> 2) * Math.max(1, (h + 3) >> 2);

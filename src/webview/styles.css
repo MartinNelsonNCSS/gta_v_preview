@@ -663,7 +663,7 @@ input:focus {
   margin: 0 4px;
 }
 .edit-status {
-  margin-left: 6px;
+  margin-left: 0;
 }
 .badge {
   display: inline-block;
@@ -693,4 +693,14 @@ input:focus {
 }
 .tex-ref.clickable:hover span:last-child {
   text-decoration: underline;
+}
+
+.edit-info {
+  flex-basis: 100%;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.edit-actions select {
+  max-width: 280px;
 }

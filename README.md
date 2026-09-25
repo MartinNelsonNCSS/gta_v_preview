@@ -52,9 +52,13 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
 - **Replacing and exporting textures**: click any texture (sidebar thumbnail, shader texture name, `.ytd` card, or a
   `.ymt` variation via double-click) to open the viewer:
   - **Replace…** picks a PNG/JPG/WebP/BMP/DDS and previews it on the model straight away. Nothing is written yet.
-  - **Size** picks the resolution to save at (also works on its own, to rescale the existing texture). Textures in a
-    `.ytd` can be any size (2×, 4×, halved, or the picked image's size; the `.ytd` is rebuilt with a fresh page
-    layout). Textures embedded in a `.ydr`/`.ydd`/`.yft` can be kept the same size or halved.
+  - **Size** and **Format** pick the resolution and compression to save with (they also work on their own, to rescale
+    or convert the existing texture). Formats: DXT1/3/5, BC4, BC5, A8R8G8B8, A8B8G8R8, X8R8G8B8, L8 and A8. The preview
+    shows the real compression result, and the viewer shows the resulting data size.
+    - In a `.ytd`, anything goes: when the new data doesn't fit, the `.ytd` is rebuilt with a fresh page layout.
+    - Embedded in a `.ydr`/`.ydd`/`.yft`, the new data must fit in the texture's existing space (e.g. DXT5 → DXT1, or
+      DXT1 → DXT5 at half size). Sizes that won't fit are greyed out.
+    - BC7 textures can be converted to another format; saving as BC7 isn't supported.
   - **Save to file** writes it into the file the texture actually lives in (the `.ytd`, or the `.ydr`/`.ydd`/`.yft` that
     embeds it), after confirmation. The image is re-encoded in the texture's current format (DXT1/3/5, BC4/5 or
     uncompressed) with a full mip chain. The first time a file is changed, the original is kept next to it as
@@ -75,9 +79,8 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
 
 - **FiveM escrow (`FXAP`) files are encrypted** and can't be previewed. The editor says so when you open one.
 - Gen9 / Enhanced-edition (`RSC8`) resources and PSO-format (binary `PSIN`) `.ymt` files aren't supported yet.
-- Texture replacement keeps each texture's format. Embedded textures (in `.ydr`/`.ydd`/`.yft`) can only be halved,
-  not enlarged; move them to a `.ytd` for other sizes. BC7 / 16-bit textures can be previewed and exported but not
-  written back. Power-of-two sizes are the safest choice for the game.
+- Textures embedded in `.ydr`/`.ydd`/`.yft` can't grow beyond their current data size; move them to a `.ytd` for
+  that. Saving as BC7 or 16-bit formats isn't supported. Power-of-two sizes are the safest choice for the game.
 - `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is drawn as neutral grey and
   shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.

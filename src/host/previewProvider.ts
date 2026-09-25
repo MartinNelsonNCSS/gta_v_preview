@@ -454,7 +454,7 @@ class PreviewSession {
         `Replace texture "${m.name}" in ${file}?`,
         {
           modal: true,
-          detail: `The texture is saved at ${m.width}×${m.height}, re-encoded in its current format with a full set of mipmaps. The original file is kept as ${file}.bak.`,
+          detail: `The texture is saved at ${m.width}×${m.height}${m.format ? ` as ${m.format}` : ' in its current format'}, with a full set of mipmaps. The original file is kept as ${file}.bak.`,
         },
         'Replace'
       );
@@ -463,7 +463,7 @@ class PreviewSession {
         return;
       }
       const original = await vscode.workspace.fs.readFile(uri);
-      const updated = replaceTexture(original, kind, m.name, m.rgba, m.width, m.height);
+      const updated = replaceTexture(original, kind, m.name, m.rgba, m.width, m.height, m.format);
       // Keep the first original as a backup; later saves don't overwrite it.
       const backup = uri.with({ path: `${uri.path}.bak` });
       try {

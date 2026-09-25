@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.0
+
+- Change texture format (DXT1/3/5, BC4/5, uncompressed); BC7 textures can be converted to another format.
+- The preview shows the actual compression result, plus the new data size.
+- Embedded textures can use any size/format that fits in their existing space (not just halving); sizes that don't fit are greyed out.
+
 ## 0.6.0
 
 - Change texture resolution: any size for textures in a `.ytd` (rebuilt with a new page layout), halving for textures embedded in `.ydr`/`.ydd`/`.yft`.

@@ -1,6 +1,7 @@
 import type { TextureData } from '../shared/model';
 import { parseDds } from '../formats/dds';
-import { decodeToRgba, formatCode } from '../formats/textures';
+import { decodeToRgba, formatCode, textureDataSize } from '../formats/textures';
+import { EncodableFormat, encodeLevel, ENCODABLE_FORMATS, isBlockFormat, isEncodable, mipChainSize } from '../formats/bcEncode';
 import { decodeBc7 } from './bc7';
 import { h, hostRequest, newRequestId } from './ui';
 
@@ -10,8 +11,6 @@ import { h, hostRequest, newRequestId } from './ui';
  * texture's exact size, to the extension host to encode and write.
  */
 
-/** Formats the host can re-encode (see formats/bcEncode.ts). */
-const WRITABLE = new Set(['DXT1', 'DXT3', 'DXT5', 'BC4', 'BC5', 'A8R8G8B8', 'X8R8G8B8', 'A8B8G8R8', 'A8', 'L8']);
 /** Previews are shown at most this size; the full-size image is kept for saving. */
 const PREVIEW_SIZE = 2048;
 
@@ -31,6 +30,7 @@ interface PendingEdit {
   rgba: Uint8Array;
   width: number;
   height: number;
+  format: string;
   preview: TextureData;
 }
 
@@ -62,69 +62,110 @@ export function originName(t: TextureData): string {
 export function editActions(target: EditTarget, show: (t: TextureData) => void): HTMLElement {
   const t = target.original;
   const status = h('span', { class: 'muted edit-status' });
-  const writable = WRITABLE.has(t.format) && !!t.origin;
+  const sizeInfo = h('span', { class: 'muted small' });
   const inYtd = /\.ytd$/i.test(t.origin ?? '');
+  const kind = (t.origin ?? '').split('.').pop()?.toLowerCase() ?? '';
+  /** Space the texture's data currently occupies; embedded textures can't grow past it. */
+  const originalSize = textureDataSize(formatCode(t.format) ?? -1, t.width, t.height, t.levels) ?? Infinity;
   const replace = h('button', { class: 'chip', title: 'Preview another image on this texture (PNG, JPG, DDS...)' }, 'Replace…');
   const sizeSelect = h('select', { title: 'Size to save the texture at' });
+  const formatSelect = h('select', { title: 'Format to save the texture in' });
   const save = h('button', { class: 'chip active', title: `Write the change into ${originName(t) || 'its file'}` }, 'Save to file');
   const revert = h('button', { class: 'chip', title: 'Discard the change' }, 'Revert');
   const png = h('button', { class: 'chip', title: 'Export the original texture as PNG' }, 'Export PNG');
   const dds = h('button', { class: 'chip', title: 'Export the original compressed data (all mips) as DDS' }, 'Export DDS');
   if (!t.origin) {
-    for (const b of [replace, sizeSelect, png, dds]) {
+    for (const b of [replace, sizeSelect, formatSelect, png, dds]) {
       b.disabled = true;
       b.title = "This texture's source file is unknown.";
     }
   }
   const say = (text: string) => (status.textContent = text);
   const sizeKey = (w: number, hgt: number) => `${w}x${hgt}`;
+  const selectedSize = () => sizeSelect.value.split('x').map(Number) as [number, number];
+  const selectedFormat = () => formatSelect.value;
+  /** Whether w×h in `format` can be written into this texture's file. */
+  const fits = (format: string, w: number, hgt: number) => {
+    if (!isEncodable(format)) return false;
+    if (isBlockFormat(format) && (w % 4 || hgt % 4)) return false;
+    return inYtd || mipChainSize(format, w, hgt) <= originalSize;
+  };
 
-  /** Sizes the texture can be saved at (see formats/textureEdit.ts). */
+  // Formats: everything we can encode, plus the current one if it's read-only (e.g. BC7).
+  formatSelect.replaceChildren(
+    ...(isEncodable(t.format) ? [] : [h('option', { value: t.format }, `${t.format} (current, can't be written; pick another to save)`)]),
+    ...ENCODABLE_FORMATS.map((f) => h('option', { value: f.format, selected: f.format === t.format }, f.format === t.format ? `${f.label} (current)` : f.label))
+  );
+
+  /** Sizes offered; ones that won't fit (embedded textures) are disabled. */
   const fillSizes = (imageSize?: { w: number; h: number }) => {
     const current = pending.get(keyOf(t));
     const selected = current ? sizeKey(current.width, current.height) : sizeKey(t.width, t.height);
+    const format = selectedFormat();
     const options: { w: number; h: number; label: string }[] = [];
-    if (inYtd) {
-      for (const m of [4, 2]) {
-        if (Math.max(t.width, t.height) * m <= MAX_SIZE) options.push({ w: t.width * m, h: t.height * m, label: `${t.width * m}×${t.height * m} (${m}×)` });
-      }
+    for (const m of [4, 2]) {
+      if (Math.max(t.width, t.height) * m <= MAX_SIZE) options.push({ w: t.width * m, h: t.height * m, label: `${t.width * m}×${t.height * m} (${m}×)` });
     }
     options.push({ w: t.width, h: t.height, label: `${t.width}×${t.height} (current)` });
-    for (let k = 1; k < Math.max(t.levels, inYtd ? 8 : 0) && Math.min(t.width >> k, t.height >> k) >= 4; k++) {
+    for (let k = 1; k < 12 && Math.min(t.width >> k, t.height >> k) >= 4; k++) {
       options.push({ w: t.width >> k, h: t.height >> k, label: `${t.width >> k}×${t.height >> k} (1/${1 << k})` });
     }
-    if (inYtd && imageSize) {
+    if (imageSize) {
       // Snap the image's own size to multiples of 4 for block-compressed formats.
       const w = Math.min(MAX_SIZE, Math.max(4, Math.round(imageSize.w / 4) * 4));
       const hh = Math.min(MAX_SIZE, Math.max(4, Math.round(imageSize.h / 4) * 4));
       if (!options.some((o) => o.w === w && o.h === hh)) options.push({ w, h: hh, label: `${w}×${hh} (image size)` });
     }
-    sizeSelect.replaceChildren(...options.map((o) => h('option', { value: sizeKey(o.w, o.h), selected: sizeKey(o.w, o.h) === selected }, o.label)));
-    sizeSelect.title = inYtd ? 'Size to save the texture at' : 'Size to save the texture at (embedded textures can only be halved; use a .ytd for other sizes)';
+    sizeSelect.replaceChildren(
+      ...options.map((o) => {
+        const ok = fits(format, o.w, o.h) || !isEncodable(format);
+        return h('option', { value: sizeKey(o.w, o.h), selected: sizeKey(o.w, o.h) === selected, disabled: !ok }, ok ? o.label : `${o.label} — too big for this .${kind}`);
+      })
+    );
+    sizeSelect.title = inYtd ? 'Size to save the texture at' : `Size to save the texture at. Textures inside a .${kind} can't grow beyond their current data size; use a .ytd for larger textures.`;
+  };
+
+  const updateInfo = () => {
+    const [w, hgt] = selectedSize();
+    const format = selectedFormat();
+    if (!isEncodable(format)) {
+      sizeInfo.textContent = '';
+      return;
+    }
+    const bytes = mipChainSize(format as EncodableFormat, w, hgt);
+    sizeInfo.textContent = `${w}×${hgt} ${format}: ${kb(bytes)}${Number.isFinite(originalSize) ? ` (was ${kb(originalSize)})` : ''}`;
   };
 
   const refresh = () => {
     const p = pending.get(keyOf(t));
     save.hidden = revert.hidden = !p;
-    save.disabled = !writable;
-    if (!writable && t.origin) save.title = `Writing ${t.format} textures isn't supported yet; you can still preview.`;
+    const [w, hgt] = selectedSize();
+    const ok = !!t.origin && fits(selectedFormat(), w, hgt);
+    save.disabled = !ok;
+    save.title = ok
+      ? `Write the change into ${originName(t) || 'its file'}`
+      : !isEncodable(selectedFormat())
+        ? `${selectedFormat()} can't be written; choose another format to save.`
+        : `This size/format doesn't fit inside the .${kind}; choose a smaller size or more compact format.`;
+    updateInfo();
   };
 
-  /** Resizes the pending source to the selected size and updates the preview. */
+  /** Resizes the pending source to the selected size/format and updates the preview. */
   const apply = (source: HTMLCanvasElement, from: string) => {
-    const [w, hgt] = sizeSelect.value.split('x').map(Number);
-    if (from === 'original' && w === t.width && hgt === t.height) {
+    const [w, hgt] = selectedSize();
+    const format = selectedFormat();
+    if (from === 'original' && w === t.width && hgt === t.height && format === t.format) {
       revertEdit();
       return;
     }
     const rgba = canvasToRgba(resizeCanvas(source, w, hgt));
-    const preview = makePreview(t, rgba, w, hgt);
-    pending.set(keyOf(t), { source, from, rgba, width: w, height: hgt, preview });
+    const preview = makePreview(t, rgba, w, hgt, format);
+    pending.set(keyOf(t), { source, from, rgba, width: w, height: hgt, format, preview });
     target.setPreview(preview);
     show(preview);
-    const what = from === 'original' ? 'the resized texture' : from;
+    const what = from === 'original' ? 'the converted texture' : from;
     const resized = source.width !== w || source.height !== hgt ? ` (from ${source.width}×${source.height})` : '';
-    say(`Previewing ${what} at ${w}×${hgt}${resized}. Not saved yet.`);
+    say(`Previewing ${what} at ${w}×${hgt} ${format}${resized}. Not saved yet.`);
     refresh();
   };
 
@@ -132,9 +173,39 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
     pending.delete(keyOf(t));
     target.setPreview(undefined);
     show(t);
+    formatSelect.value = t.format;
     fillSizes();
     say('Reverted.');
     refresh();
+  };
+
+  /** Starts from the texture's own full-resolution pixels (resize/convert without a new image). */
+  const loadOriginal = async (): Promise<HTMLCanvasElement | undefined> => {
+    if (!t.origin) return undefined;
+    say('Loading full-resolution texture…');
+    const full = await hostRequest({ type: 'getFullTexture', requestId: newRequestId(), origin: t.origin, name: t.name }, 'fullTexture');
+    const px = full.texture?.pixels;
+    const rgba = px && (px.encoding === 'bc7' ? decodeBc7(px.data, px.width, px.height) : px.data);
+    if (!px || !rgba) {
+      say(`Couldn't load the texture: ${full.error ?? 'no pixel data'}`);
+      return undefined;
+    }
+    return rgbaCanvas(rgba, px.width, px.height);
+  };
+
+  const onSettingsChange = async () => {
+    const p = pending.get(keyOf(t));
+    if (p) {
+      apply(p.source, p.from);
+      return;
+    }
+    const [w, hgt] = selectedSize();
+    if (w === t.width && hgt === t.height && selectedFormat() === t.format) {
+      refresh();
+      return;
+    }
+    const source = await loadOriginal();
+    if (source) apply(source, 'original');
   };
 
   replace.onclick = async () => {
@@ -150,25 +221,17 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
     }
   };
 
-  sizeSelect.onchange = async () => {
+  sizeSelect.onchange = () => void onSettingsChange();
+  formatSelect.onchange = () => {
     const p = pending.get(keyOf(t));
-    if (p) {
-      apply(p.source, p.from);
-      return;
+    fillSizes(p && p.from !== 'original' ? { w: p.source.width, h: p.source.height } : undefined);
+    // If the chosen size no longer fits (embedded textures), fall back to the largest that does.
+    if (sizeSelect.selectedOptions[0]?.disabled) {
+      const firstOk = [...sizeSelect.options].find((o) => !o.disabled);
+      if (firstOk) sizeSelect.value = firstOk.value;
     }
-    // Resizing the texture itself: start from its full-resolution pixels.
-    if (!t.origin) return;
-    say('Loading full-resolution texture…');
-    const full = await hostRequest({ type: 'getFullTexture', requestId: newRequestId(), origin: t.origin, name: t.name }, 'fullTexture');
-    const px = full.texture?.pixels;
-    const rgba = px && (px.encoding === 'bc7' ? decodeBc7(px.data, px.width, px.height) : px.data);
-    if (!px || !rgba) {
-      say(`Couldn't load the texture: ${full.error ?? 'no pixel data'}`);
-      return;
-    }
-    apply(rgbaCanvas(rgba, px.width, px.height), 'original');
+    void onSettingsChange();
   };
-
   revert.onclick = revertEdit;
 
   save.onclick = async () => {
@@ -177,7 +240,7 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
     save.disabled = true;
     say('Encoding and saving…');
     const reply = await hostRequest(
-      { type: 'replaceTexture', requestId: newRequestId(), origin: t.origin, name: t.name, rgba: p.rgba, width: p.width, height: p.height },
+      { type: 'replaceTexture', requestId: newRequestId(), origin: t.origin, name: t.name, rgba: p.rgba, width: p.width, height: p.height, format: p.format },
       'textureReplaced'
     );
     if (reply.ok) {
@@ -210,14 +273,33 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
   };
 
   const existing = pending.get(keyOf(t));
-  fillSizes(existing ? { w: existing.source.width, h: existing.source.height } : undefined);
+  if (existing) formatSelect.value = existing.format;
+  fillSizes(existing && existing.from !== 'original' ? { w: existing.source.width, h: existing.source.height } : undefined);
   refresh();
-  if (existing) say(`Previewing ${existing.from === 'original' ? 'the resized texture' : existing.from} at ${existing.width}×${existing.height}. Not saved yet.`);
-  return h('div', { class: 'edit-actions' }, replace, h('label', { class: 'toggle' }, 'Size', sizeSelect), save, revert, h('span', { class: 'sep' }), png, dds, status);
+  if (existing) say(`Previewing ${existing.from === 'original' ? 'the converted texture' : existing.from} at ${existing.width}×${existing.height} ${existing.format}. Not saved yet.`);
+  return h(
+    'div',
+    { class: 'edit-actions' },
+    replace,
+    h('label', { class: 'toggle' }, 'Size', sizeSelect),
+    h('label', { class: 'toggle' }, 'Format', formatSelect),
+    save,
+    revert,
+    h('span', { class: 'sep' }),
+    png,
+    dds,
+    h('div', { class: 'edit-info' }, sizeInfo, status)
+  );
 }
 
-/** A display-sized RGBA texture for previewing a replacement of size w×hgt. */
-function makePreview(t: TextureData, rgba: Uint8Array, width: number, height: number): TextureData {
+const kb = (n: number) => `${Math.max(1, Math.round(n / 1024)).toLocaleString()} KB`;
+
+/**
+ * A display-sized texture for previewing a replacement of size width×height.
+ * It's run through the target format's encoder and decoder, so the preview
+ * shows the real compression result (e.g. DXT1's 1-bit alpha, BC4's one channel).
+ */
+function makePreview(t: TextureData, rgba: Uint8Array, width: number, height: number, format: string): TextureData {
   let w = width;
   let hgt = height;
   let data = rgba;
@@ -229,7 +311,9 @@ function makePreview(t: TextureData, rgba: Uint8Array, width: number, height: nu
     hgt = small.height;
     data = new Uint8Array(small.getContext('2d')!.getImageData(0, 0, w, hgt).data.buffer);
   }
-  return { ...t, width, height, pixels: { width: w, height: hgt, encoding: 'rgba', data } };
+  const code = formatCode(format);
+  if (isEncodable(format) && code !== undefined) data = decodeToRgba(code, encodeLevel(format, data, w, hgt), w, hgt);
+  return { ...t, width, height, format, pixels: { width: w, height: hgt, encoding: 'rgba', data } };
 }
 
 // ---------------------------------------------------------------------------
