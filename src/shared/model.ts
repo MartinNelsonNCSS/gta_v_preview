@@ -242,6 +242,17 @@ export interface YmtData {
   raw: unknown;
 }
 
+/** A .ytd offered to the texture optimiser. */
+export interface OptimizerFile {
+  uri: string;
+  file: string;
+  resource: string;
+  rel: string;
+  graphicsSize: number;
+  systemSize: number;
+  textures: { name: string; width: number; height: number; format: string; levels: number; size: number }[];
+}
+
 export interface YtypData {
   name: string;
   archetypes: ArchetypeData[];
@@ -286,6 +297,19 @@ export type HostToWebview =
   /** Images to convert in the DDS converter panel. */
   | { type: 'converterFiles'; files: { name: string; uri: string; data: Uint8Array }[] }
   | { type: 'converted'; requestId: number; ok: boolean; path?: string; skipped?: boolean; replaceAll?: boolean; error?: string }
+  /** Texture dictionaries for the optimiser panel. */
+  | { type: 'optimizerFiles'; scope: string; files: OptimizerFile[] }
+  | {
+      type: 'optimizeProgress';
+      uri: string;
+      ok: boolean;
+      before?: number;
+      after?: number;
+      changed?: number;
+      skipped?: { name: string; reason: string }[];
+      error?: string;
+    }
+  | { type: 'optimizeDone'; cancelled?: boolean }
   | { type: 'textures'; requestId: number; textures: TextureData[]; source: string; searched: number; done: boolean }
   | {
       type: 'archetypeModels';
@@ -332,4 +356,6 @@ export type WebviewToHost =
   /** Saves bytes produced by the webview (e.g. a PNG) via a save dialog. */
   | { type: 'saveFile'; requestId: number; suggestedName: string; data: Uint8Array; filterName: string; extensions: string[] }
   /** Writes a converted .dds next to its source image (asking before replacing unless `overwrite`). */
-  | { type: 'writeConverted'; requestId: number; sourceUri: string; data: Uint8Array; overwrite: boolean; format: string };
+  | { type: 'writeConverted'; requestId: number; sourceUri: string; data: Uint8Array; overwrite: boolean; format: string }
+  /** Applies optimisation plans (see formats/optimize.ts) to .ytd files. */
+  | { type: 'applyOptimization'; files: { uri: string; plans: import('../formats/optimize').TexturePlan[] }[] };

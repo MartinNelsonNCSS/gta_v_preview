@@ -26,7 +26,7 @@ createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname === '/') {
-      const file = url.searchParams.get('file') ?? url.searchParams.get('convert');
+      const file = url.searchParams.get('file') ?? url.searchParams.get('convert') ?? url.searchParams.get('optimize');
       if (file) return res.writeHead(200, { 'content-type': 'text/html' }).end(page(file));
       const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn|ymt)$/i.test(f));
       return res.writeHead(200, { 'content-type': 'text/html' }).end(

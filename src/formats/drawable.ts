@@ -1,7 +1,7 @@
 import { ResourceReader } from './reader';
 import { readRsc7 } from './rsc7';
 import { HashNames, SHADER_FILE_NAMES, SHADER_NAMES, SHADER_PARAM_NAMES } from './hash';
-import { readTextureDictionary, TextureDecodeOptions } from './textures';
+import { readTextureDictionary, readTextureInfo, TextureDecodeOptions } from './textures';
 import { readBounds } from './bounds';
 import type {
   BoneData,
@@ -48,6 +48,36 @@ export function parseYdd(file: Uint8Array, opts: DrawableOptions): DrawableData[
 // ---------------------------------------------------------------------------
 // Drawable
 // ---------------------------------------------------------------------------
+
+/** What a drawable references, without reading geometry or pixels (for workspace scans). */
+export interface DrawableRefs {
+  name: string;
+  /** Embedded textures (metadata only). */
+  textures: ReturnType<typeof readTextureInfo>[];
+  /** Lower-case names of every texture its shaders use. */
+  refs: string[];
+}
+
+export function readDrawableRefs(r: ResourceReader, ptr: number, variant: DrawableVariant = 'gta'): DrawableRefs {
+  const shaderGroupPtr = r.ptr(ptr + 0x10);
+  let textures: DrawableRefs['textures'] = [];
+  let refs: string[] = [];
+  if (r.isValid(shaderGroupPtr)) {
+    const txdPtr = r.ptr(shaderGroupPtr + 0x08);
+    if (r.isValid(txdPtr)) {
+      const list = r.list(txdPtr + 0x30);
+      textures = r.ptrArray(list.items, list.count).map((p) => readTextureInfo(r, p));
+    }
+    refs = [...new Set(readShaders(r, shaderGroupPtr).flatMap((s) => s.textures.map((t) => t.texture.toLowerCase())))];
+  }
+  let name = '';
+  try {
+    name = (r.string(r.ptr(ptr + VARIANT_OFFSETS[variant].name)) ?? '').replace(/\.#d[rd]$/i, '');
+  } catch {
+    name = '';
+  }
+  return { name, textures, refs };
+}
 
 /**
  * Where the name and collision pointers live: gtaDrawable (.ydr/.ydd) and

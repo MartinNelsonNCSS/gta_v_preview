@@ -7,6 +7,7 @@ import { ybnView } from './views/ybnView';
 import { ymapView } from './views/ymapView';
 import { textView, ymtView } from './views/ymtView';
 import { converterView } from './views/converterView';
+import { optimizerView } from './views/optimizerView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
@@ -50,6 +51,9 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'converterFiles':
       show(converterView(m.files));
+      break;
+    case 'optimizerFiles':
+      show(optimizerView(m.scope, m.files));
       break;
     case 'error':
       if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message));

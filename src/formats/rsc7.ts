@@ -32,13 +32,16 @@ export function sizeFromFlags(flags: number): number {
   return baseSize * (s0 + s1 + s2 + s3 + s4 + s5 + s6 + s7 + s8);
 }
 
-interface Rsc7Header {
+export interface Rsc7Header {
   version: number;
+  /** Virtual (CPU) memory, in bytes. */
   systemSize: number;
+  /** Physical (GPU) memory, in bytes. */
   graphicsSize: number;
 }
 
-function readHeader(file: Uint8Array): Rsc7Header {
+/** Reads the 16-byte RSC7 header; throws a ResourceError for encrypted/unsupported files. */
+export function readHeader(file: Uint8Array): Rsc7Header {
   if (file.byteLength < 16) {
     throw new ResourceError('File is too small to be a GTA V resource.');
   }
@@ -89,22 +92,51 @@ export function readRsc7(file: Uint8Array): Rsc7Resource {
  * The returned graphics segment is empty.
  */
 export function readRsc7SystemOnly(file: Uint8Array): Rsc7Resource {
-  const { version, systemSize } = readHeader(file);
-  const system = new Uint8Array(systemSize);
-  let filled = 0;
-  const inflater = new Inflate((chunk) => {
-    const n = Math.min(chunk.length, systemSize - filled);
-    if (n > 0) system.set(chunk.subarray(0, n), filled);
-    filled += n;
-  });
+  const inflater = new SystemInflater(file.subarray(0, 16));
   const CHUNK = 64 * 1024;
-  try {
-    for (let pos = 16; pos < file.length && filled < systemSize; pos += CHUNK) {
-      const end = Math.min(file.length, pos + CHUNK);
-      inflater.push(file.subarray(pos, end), end === file.length);
-    }
-  } catch (err) {
-    throw new ResourceError(`Failed to decompress resource: ${(err as Error).message}`);
+  for (let pos = 16; pos < file.length && !inflater.done; pos += CHUNK) {
+    const end = Math.min(file.length, pos + CHUNK);
+    inflater.push(file.subarray(pos, end), end === file.length);
   }
-  return { version, system, graphics: new Uint8Array(0) };
+  return inflater.result();
+}
+
+/**
+ * Incrementally decompresses just the system segment of an RSC7 file, so
+ * callers can stop reading the file as soon as it's complete (texture names,
+ * shaders and meta data all live there; pixels and vertices mostly don't).
+ */
+export class SystemInflater {
+  readonly header: Rsc7Header;
+  private readonly system: Uint8Array;
+  private filled = 0;
+  private readonly inflater: Inflate;
+
+  constructor(head: Uint8Array) {
+    this.header = readHeader(head);
+    this.system = new Uint8Array(this.header.systemSize);
+    this.inflater = new Inflate((chunk) => {
+      const n = Math.min(chunk.length, this.system.length - this.filled);
+      if (n > 0) this.system.set(chunk.subarray(0, n), this.filled);
+      this.filled += Math.max(0, n);
+    });
+  }
+
+  get done(): boolean {
+    return this.filled >= this.system.length;
+  }
+
+  /** Feeds compressed bytes (after the 16-byte header). */
+  push(chunk: Uint8Array, final = false): void {
+    if (this.done) return;
+    try {
+      this.inflater.push(chunk, final);
+    } catch (err) {
+      throw new ResourceError(`Failed to decompress resource: ${(err as Error).message}`);
+    }
+  }
+
+  result(): Rsc7Resource {
+    return { version: this.header.version, system: this.system, graphics: new Uint8Array(0) };
+  }
 }

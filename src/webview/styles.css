@@ -750,3 +750,34 @@ input:focus {
   max-height: 100%;
   object-fit: contain;
 }
+
+/* -- texture optimiser ---------------------------------------------------- */
+
+.opt-summary {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.opt-list {
+  flex: 1;
+  overflow: auto;
+  padding: 0 10px 10px;
+}
+.opt-file-block {
+  margin-top: 10px;
+}
+.opt-file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+}
+.opt-table td {
+  white-space: normal;
+}
+.opt-ok {
+  color: var(--ok);
+}
+.opt-bad {
+  color: var(--bad);
+}

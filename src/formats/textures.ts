@@ -116,6 +116,22 @@ export function readTexture(r: ResourceReader, ptr: number, opts: TextureDecodeO
   return tex;
 }
 
+/** Texture metadata without pixels (for scanning). `size` is the data size of all mips. */
+export function readTextureInfo(r: ResourceReader, ptr: number): { name: string; width: number; height: number; format: string; levels: number; size: number } {
+  const width = r.u16(ptr + 0x50);
+  const height = r.u16(ptr + 0x52);
+  const format = r.u32(ptr + 0x58);
+  const levels = Math.max(1, r.u8(ptr + 0x5d));
+  return {
+    name: r.string(r.ptr(ptr + 0x28)) ?? '(unnamed)',
+    width,
+    height,
+    format: FORMATS[format]?.name ?? `0x${format.toString(16)}`,
+    levels,
+    size: textureDataSize(format, width, height, levels) ?? 0,
+  };
+}
+
 /** Reads a TextureDictionary (the root of a .ytd, or embedded in a ShaderGroup). */
 export function readTextureDictionary(r: ResourceReader, ptr: number, opts: TextureDecodeOptions): TextureData[] {
   const list = r.list(ptr + 0x30);

@@ -74,6 +74,29 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
+## Workspace tools (GTA V sidebar)
+
+Open the **GTA V** view in the activity bar:
+
+- **Assets** lists every resource's models, texture dictionaries, archetypes, maps, collisions and ped files, with
+  memory use, expandable to their contents (textures, the textures a model uses and where each comes from,
+  archetypes, placed props). **Find Asset…** (search icon) searches files, textures and archetypes by name.
+  **Find Usages** (right-click, or the inline icon) answers "which models use this texture?", "which maps place this
+  archetype?", "where is this texture defined?".
+- **Resource Health** (**Check Resources**) scans the workspace and reports in the Problems panel:
+  - **oversized assets** — files over 16 MiB of physical or virtual memory, with the same 16/32/48 MiB levels FiveM
+    warns at, naming the biggest textures;
+  - **missing textures** that aren't embedded or in any `.ytd` (info only, base-game textures are expected);
+  - **archetypes with no model file**, and maps placing **interiors that aren't defined** anywhere;
+  - streamed **`.ytyp` files missing from `data_file 'DLC_ITYP_REQUEST'`** in `fxmanifest.lua` (with the line to add),
+    and map resources without `this_is_a_map 'yes'`;
+  - **name clashes** (the same file streamed by more than one resource), escrow-encrypted and unreadable files;
+  - **texture hints**: no mipmaps, uncompressed or very large textures.
+- **Optimize Textures…** (also on folders and `.ytd` files in the Explorer) caps texture sizes, adds missing
+  mipmaps and compresses uncompressed textures across a resource or the whole workspace. It lists every change with
+  the exact memory saving before you apply it; halving reuses existing mipmaps (lossless), and each `.ytd` is rebuilt
+  so its streaming memory actually shrinks. Originals are kept as `.bak`.
+
 ## Settings
 
 | Setting                     | Default     | Description                                                                               |
@@ -110,6 +133,8 @@ Other tools:
   (with a stubbed `vscode` module) at <http://localhost:5178>. This makes UI work fast to iterate on.
 - `npm run hosttest -- path/to/file.ytyp` runs the real extension-host code under Node (with a stubbed `vscode`
   module) and reports what it would send to the webview: texture search results, MLO models found, etc.
+- `npm run test:vscode -- <folder> [path-to-vscode-executable]` runs an end-to-end check inside a real VS Code
+  (activation, commands, health check diagnostics, editors and panels) against a folder of assets.
 - `npm run package` builds a `.vsix`.
 
 ### Releasing

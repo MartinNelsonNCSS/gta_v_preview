@@ -1,13 +1,13 @@
 {
   "name": "gta-v-asset-preview",
   "displayName": "GTA V Asset Preview",
-  "description": "Preview GTA V .ydr, .ydd, .yft, .ytyp, .ymap, .ymt, .ybn and .ytd files: 3D models with textures, drawable dictionaries, vehicles/fragments, archetypes, MLO interiors, maps, ped clothing and collisions. Pure TypeScript \u2014 no external tools, works on Windows, macOS, Linux and vscode.dev.",
+  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn) and ped clothing (.ymt). Includes a FiveM resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#10141a",
     "theme": "dark"
   },
-  "version": "0.8.0",
+  "version": "0.9.0",
   "publisher": "ncss-ltd",
   "license": "GPL-3.0-only",
   "repository": {
@@ -168,6 +168,36 @@
         "command": "gtaPreview.convertToDds",
         "title": "Convert to DDS\u2026",
         "category": "GTA V"
+      },
+      {
+        "command": "gtaPreview.checkResources",
+        "title": "Check Resources",
+        "category": "GTA V",
+        "icon": "$(checklist)"
+      },
+      {
+        "command": "gtaPreview.optimizeTextures",
+        "title": "Optimize Textures\u2026",
+        "category": "GTA V",
+        "icon": "$(zap)"
+      },
+      {
+        "command": "gtaPreview.findAsset",
+        "title": "Find Asset\u2026",
+        "category": "GTA V",
+        "icon": "$(search)"
+      },
+      {
+        "command": "gtaPreview.findUsages",
+        "title": "Find Usages",
+        "category": "GTA V",
+        "icon": "$(references)"
+      },
+      {
+        "command": "gtaPreview.refreshAssets",
+        "title": "Rescan Assets",
+        "category": "GTA V",
+        "icon": "$(refresh)"
       }
     ],
     "menus": {
@@ -176,9 +206,99 @@
           "command": "gtaPreview.convertToDds",
           "when": "resourceExtname =~ /^\\.(png|jpe?g|webp|bmp|gif|dds)$/i",
           "group": "7_modification@90"
+        },
+        {
+          "command": "gtaPreview.optimizeTextures",
+          "when": "explorerResourceIsFolder || resourceExtname == .ytd",
+          "group": "7_modification@91"
+        },
+        {
+          "command": "gtaPreview.findUsages",
+          "when": "resourceExtname =~ /^\\.(ydr|ydd|yft|ytd|ytyp|ymap|ybn|ymt)$/i",
+          "group": "7_modification@92"
+        }
+      ],
+      "view/title": [
+        {
+          "command": "gtaPreview.findAsset",
+          "when": "view == gtaPreview.assets",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gtaPreview.refreshAssets",
+          "when": "view == gtaPreview.assets",
+          "group": "navigation@2"
+        },
+        {
+          "command": "gtaPreview.checkResources",
+          "when": "view == gtaPreview.health",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gtaPreview.optimizeTextures",
+          "when": "view == gtaPreview.health",
+          "group": "navigation@2"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "gtaPreview.findUsages",
+          "when": "view == gtaPreview.assets && viewItem =~ /^(texture|archetype|model|file-)/",
+          "group": "inline"
+        },
+        {
+          "command": "gtaPreview.findUsages",
+          "when": "view == gtaPreview.assets && viewItem =~ /^(texture|archetype|model|file-)/",
+          "group": "navigation@1"
+        },
+        {
+          "command": "gtaPreview.optimizeTextures",
+          "when": "view == gtaPreview.assets && viewItem =~ /^(resource|file-ytd)$/",
+          "group": "navigation@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "gtaPreview.findUsages",
+          "when": "false"
         }
       ]
-    }
+    },
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "gtaPreview",
+          "title": "GTA V",
+          "icon": "media/sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "gtaPreview": [
+        {
+          "id": "gtaPreview.assets",
+          "name": "Assets",
+          "icon": "media/sidebar.svg",
+          "contextualTitle": "GTA V"
+        },
+        {
+          "id": "gtaPreview.health",
+          "name": "Resource Health",
+          "icon": "media/sidebar.svg",
+          "contextualTitle": "GTA V"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "gtaPreview.assets",
+        "contents": "Scanning the workspace for GTA V assets\u2026\nIf nothing appears, open a folder that contains FiveM resources.\n[Rescan](command:gtaPreview.refreshAssets)"
+      },
+      {
+        "view": "gtaPreview.health",
+        "contents": "Check your FiveM resources for oversized assets, missing textures, broken references, name clashes and fxmanifest gaps.\n[Check Resources](command:gtaPreview.checkResources)\nOr shrink texture memory across a resource or the whole workspace:\n[Optimize Textures\u2026](command:gtaPreview.optimizeTextures)"
+      }
+    ]
   },
   "scripts": {
     "build": "node esbuild.mjs",
@@ -188,7 +308,8 @@
     "package": "npm run typecheck && vsce package --no-dependencies",
     "vscode:prepublish": "node esbuild.mjs --production",
     "hosttest": "esbuild tools/hosttest/run.ts --bundle --platform=node --outfile=out/hosttest.js --alias:vscode=./tools/hosttest/vscode-stub.ts --log-level=warning && node out/hosttest.js",
-    "harness": "node esbuild.mjs && node esbuild.mjs --tools && node tools/harness/serve.mjs"
+    "harness": "node esbuild.mjs && node esbuild.mjs --tools && node tools/harness/serve.mjs",
+    "test:vscode": "node tools/vscode-test/run.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3",
@@ -198,6 +319,7 @@
     "@types/node": "^20.19.43",
     "@types/three": "^0.186.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0",
     "esbuild": "^0.28.2",
     "typescript": "^7.0.2"

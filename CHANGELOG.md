@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.0
+
+- **GTA V sidebar** with an **Assets** browser (resources → models, texture dictionaries, archetypes, maps, collisions, ped files → contents), **Find Asset…** and **Find Usages**.
+- **Resource Health** check: oversized assets (FiveM's 16/32/48 MiB levels), missing textures and models, undefined interiors, fxmanifest `DLC_ITYP_REQUEST` gaps, name clashes, encrypted files and texture hints — in the Problems panel and a sidebar view.
+- **Optimize Textures…**: batch cap sizes / add mipmaps / compress across a resource or workspace with exact memory estimates; `.ytd` files are rebuilt so memory really shrinks.
+
 ## 0.8.0
 
 - **Convert to DDS…**: convert PNG/JPG/WebP/BMP/GIF/DDS images to `.dds` (DXT1/DXT5/BC4/BC5/uncompressed) with generated mipmaps, from the Explorer context menu or command palette.

@@ -18,7 +18,7 @@ export type TextureFileKind = 'ytd' | 'ydr' | 'ydd' | 'yft';
 
 const ROOT = 0x50000000;
 
-interface TextureLocation {
+export interface TextureLocation {
   name: string;
   ptr: number;
 }
@@ -32,7 +32,7 @@ function drawableTxd(r: ResourceReader, drawablePtr: number): number | undefined
   return r.isValid(txd) ? txd : undefined;
 }
 
-function dictionaryTextures(r: ResourceReader, txd: number | undefined): TextureLocation[] {
+export function dictionaryTextures(r: ResourceReader, txd: number | undefined): TextureLocation[] {
   if (txd === undefined) return [];
   const list = r.list(txd + 0x30);
   return r.ptrArray(list.items, list.count).map((ptr) => ({ ptr, name: r.string(r.ptr(ptr + 0x28)) ?? '' }));
@@ -61,7 +61,7 @@ function findTexture(r: ResourceReader, kind: TextureFileKind, name: string): Te
   return found;
 }
 
-interface RawTexture {
+export interface RawTexture {
   name: string;
   width: number;
   height: number;
@@ -72,7 +72,7 @@ interface RawTexture {
   size: number;
 }
 
-function rawTexture(r: ResourceReader, loc: TextureLocation): RawTexture {
+export function rawTexture(r: ResourceReader, loc: TextureLocation): RawTexture {
   const width = r.u16(loc.ptr + 0x50);
   const height = r.u16(loc.ptr + 0x52);
   const format = r.u32(loc.ptr + 0x58);
@@ -163,7 +163,16 @@ export function replaceTexture(file: Uint8Array, kind: TextureFileKind, name: st
         'Choose a smaller size, a more compact format or fewer mips, or move the texture to a .ytd.'
     );
   }
-  return rebuildYtd(file, r, t.name, { width, height, levels, format: target, data });
+  return rebuildYtd(file, r, new Map([[t.name.toLowerCase(), { width, height, levels, format: target, data }]]));
+}
+
+/** Changed texture data for a .ytd rebuild. */
+export interface TextureChange {
+  width: number;
+  height: number;
+  levels: number;
+  format: string;
+  data: Uint8Array;
 }
 
 const kb = (n: number) => `${Math.ceil(n / 1024).toLocaleString()} KB`;
@@ -220,32 +229,28 @@ function withHeader(header: Uint8Array, compressed: Uint8Array): Uint8Array {
 }
 
 /**
- * Rebuilds a .ytd from scratch with one texture's data replaced. Other
- * textures keep their exact bytes; structures are copied from the original
- * and only pointers and size fields change.
+ * Rebuilds a .ytd from scratch with some textures' data replaced (keyed by
+ * lower-case name). Other textures keep their exact bytes; structures are
+ * copied from the original and only pointers and size fields change. The new
+ * page layout fits the new data, so memory use shrinks when textures do.
  */
-function rebuildYtd(
-  file: Uint8Array,
-  r: ResourceReader,
-  replacedName: string,
-  replacement: { width: number; height: number; levels: number; format: string; data: Uint8Array }
-): Uint8Array {
+export function rebuildYtd(file: Uint8Array, r: ResourceReader, changes: Map<string, TextureChange>): Uint8Array {
   const hashes = r.list(ROOT + 0x20);
   const list = r.list(ROOT + 0x30);
   const entries = r.ptrArray(list.items, list.count).map((ptr, i) => {
     const loc = { ptr, name: r.string(r.ptr(ptr + 0x28)) ?? '' };
     const t = rawTexture(r, loc);
-    const replaced = loc.name.toLowerCase() === replacedName.toLowerCase();
+    const change = changes.get(loc.name.toLowerCase());
     return {
       name: loc.name,
       hash: r.u32(hashes.items + i * 4),
       struct: r.bytes(ptr, 0x90).slice(),
-      format: replaced ? replacement.format : t.formatName,
-      width: replaced ? replacement.width : t.width,
-      height: replaced ? replacement.height : t.height,
-      levels: replaced ? replacement.levels : t.levels,
-      data: replaced ? replacement.data : r.bytes(t.dataPtr, t.size).slice(),
-      replaced,
+      format: change ? change.format : t.formatName,
+      width: change ? change.width : t.width,
+      height: change ? change.height : t.height,
+      levels: change ? change.levels : t.levels,
+      data: change ? change.data : r.bytes(t.dataPtr, t.size).slice(),
+      replaced: !!change,
     };
   });
   const n = entries.length;

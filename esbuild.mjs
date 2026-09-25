@@ -42,7 +42,8 @@ const builds = toolsOnly
         outfile: 'dist/extension.web.js',
         platform: 'browser',
         format: 'cjs',
-        external: ['vscode'],
+        // Node's fs is used for fast partial reads on desktop only (guarded at runtime).
+        external: ['vscode', 'fs'],
         target: 'es2022',
       },
       // Webview UI.
