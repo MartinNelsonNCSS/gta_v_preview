@@ -6,7 +6,7 @@ import { join, extname, relative, resolve } from 'path';
 const root = resolve(process.argv[2] ?? '.');
 const port = Number(process.argv[3] ?? 5178);
 const repo = resolve(new URL('../..', import.meta.url).pathname);
-const EXTS = ['.ydr', '.ydd', '.ytyp', '.ytd', '.yft', '.ybn', '.ymap', '.ymt'];
+const EXTS = ['.ydr', '.ydd', '.ytyp', '.ytd', '.yft', '.ybn', '.ymap', '.ymt', '.ycd'];
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.map': 'application/json' };
 
 async function walk(dir, out = []) {

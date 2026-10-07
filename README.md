@@ -12,6 +12,7 @@ Preview Grand Theft Auto V resource files directly in VS Code:
 | `.ymt`  | Ped variation (clothing/addon peds): browse components & props, texture variations, 3D preview; raw tree for other meta |
 | `.ybn`  | Collision viewer: meshes and primitives colour-coded by material, per-material filter, click to identify |
 | `.ytd`  | Texture gallery with a full-size viewer (RGB / alpha channels)                                        |
+| `.ycd`  | Animation player: ped clips on a built-in skeleton, vehicle/prop clips on their model, clip list and events |
 
 Everything is implemented in TypeScript (RSC7 decompression, drawable/meta parsing, DXT/BC texture decoding),
 so there are no native binaries or external tools like CodeWalker. It works the same on Windows, macOS, Linux,
@@ -29,7 +30,7 @@ Remote/WSL, and in vscode.dev.
 
 ## Usage
 
-Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file. The preview opens automatically.
+Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd` or `.ycd` file. The preview opens automatically.
 
 - **Orbit**: left-drag. **Pan**: right-drag or shift-drag. **Zoom**: scroll.
 - **Cut** slider: hides everything above a height, which helps when looking into interiors.
@@ -71,6 +72,14 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn` or `.ytd` file
   **Convert to DDS…** (or run **GTA V: Convert to DDS…** from the command palette). Pick the format (DXT1, DXT5, ...),
   mipmaps (full chain, down to 4×4, or none) and size (original, nearest power of two, or a maximum), check the
   preview, and convert. Each `.dds` is written next to its source image.
+- **Animations (`.ycd`)**: pick a clip and play, pause, step frame by frame (or <kbd>Space</kbd> / <kbd>←</kbd> <kbd>→</kbd>)
+  and scrub; change the speed, loop, and toggle **Root motion** to see the character move through the scene.
+  - **Ped animations** (emotes, scenarios, cutscene parts) play on a built-in GTA V ped skeleton drawn as a stick
+    figure (body and fingers), so no ped model is needed.
+  - **Vehicle and prop animations** (convertible roofs, doors, `va_<vehicle>.ycd`, prop clips) play on the model
+    itself when it's next to the `.ycd` (or named by `va_<model>.ycd`): each part follows its bone.
+  - The sidebar shows the clip's time range, frames, track types, events (tags with their times) and the animated
+    bones by name.
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
@@ -115,6 +124,9 @@ Open the **GTA V** view in the activity bar:
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.
 - Base-game names that aren't present as files nearby show as `hash_XXXXXXXX`, and base-game models show as boxes.
 - `.ymap` grass instances, occluders and LOD lights are counted but not drawn.
+- Animations: ped clips use a stick figure rather than a ped model; facial and helper bones aren't drawn. On models,
+  rigid parts follow their bones but skinned meshes stay in their rest pose. Clips built from animation lists play
+  the first animation; UV and other non-bone tracks are listed but not shown. Encrypted models can't be animated.
 - BC7 textures are decoded on the GPU, so they need a GPU/driver that supports `EXT_texture_compression_bptc`.
 
 ## Development
@@ -146,7 +158,7 @@ Open VSX when the `VSCE_PAT` / `OVSX_PAT` repository secrets are set.
 ### Layout
 
 ```
-src/formats/    Pure parsers (no VS Code / DOM deps): rsc7, reader, drawable, textures, bounds, meta, ytyp, ymap, ytd, hash
+src/formats/    Pure parsers (no VS Code / DOM deps): rsc7, reader, drawable, textures, bounds, meta, ytyp, ymap, ytd, ycd, hash
 src/host/       Extension host: custom editor provider, workspace asset index (texture/model lookup)
 src/webview/    three.js viewer and UI (model panel, ytd gallery, ytyp/MLO views)
 src/shared/     Message and data types shared by host and webview

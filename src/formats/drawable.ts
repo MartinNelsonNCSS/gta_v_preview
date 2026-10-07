@@ -412,7 +412,7 @@ function readSkeleton(r: ResourceReader, ptr: number): BoneData[] {
     const tag = r.u16(b + 0x44);
     const local = composeTRS(t, [qx, qy, qz, qw], s);
     const world = parent >= 0 && parent < bones.length ? mul4(bones[parent].world, local) : local;
-    bones.push({ name, tag, parent, world });
+    bones.push({ name, tag, parent, world, translation: t, rotation: [qx, qy, qz, qw], scale: s });
   }
   return bones;
 }

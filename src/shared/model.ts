@@ -72,6 +72,10 @@ export interface BoneData {
   parent: number;
   /** Bone-to-model-space transform, column-major 4x4. */
   world: number[];
+  /** Rest transform relative to the parent bone. */
+  translation?: Vec3;
+  rotation?: Quat;
+  scale?: Vec3;
 }
 
 export interface DrawableData {
@@ -262,10 +266,55 @@ export interface YtypData {
 }
 
 // ---------------------------------------------------------------------------
+// Animations (.ycd)
+// ---------------------------------------------------------------------------
+
+export interface AnimTrack {
+  boneId: number;
+  /** 0 = position, 1 = rotation, 2 = scale, 5 = mover position, 6 = mover rotation, ... */
+  track: number;
+  /** Values per frame: 4 for quaternions (x, y, z, w), 3 for vectors, 1 for floats. */
+  components: number;
+  /** frames × components values. */
+  values: Float32Array;
+}
+
+export interface AnimationInfo {
+  hash: number;
+  frames: number;
+  duration: number;
+  tracks: AnimTrack[];
+}
+
+export interface ClipInfo {
+  name: string;
+  /** Index into the dictionary's animations, or -1. For animation lists, the first animation. */
+  animation: number;
+  /** Time range of the animation the clip plays, in seconds. */
+  start: number;
+  end: number;
+  rate: number;
+  /** Tags (events) with their start/end phase (0-1). */
+  tags: { name: string; start: number; end: number }[];
+  properties: string[];
+}
+
+export interface ClipDictionaryData {
+  clips: ClipInfo[];
+  animations: AnimationInfo[];
+}
+
+/** A model whose skeleton an animation drives (e.g. va_<vehicle>.ycd → <vehicle>.yft). */
+export interface AnimTarget {
+  file: string;
+  drawable: DrawableData;
+}
+
+// ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
 
-export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn' | 'ymt';
+export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn' | 'ymt' | 'ycd';
 
 export interface ArchetypeRequest {
   /** Archetype name (may be an unresolved `hash_XXXXXXXX`). */
@@ -280,6 +329,15 @@ export type HostToWebview =
   | { type: 'ytd'; file: string; textures: TextureData[] }
   | { type: 'ymap'; file: string; ymap: YmapData }
   | { type: 'ybn'; file: string; bounds: BoundsData }
+  | {
+      type: 'ycd';
+      file: string;
+      ycd: ClipDictionaryData;
+      /** Nearby models whose skeletons match non-ped animations. */
+      targets: AnimTarget[];
+      /** Why a matching model couldn't be used (e.g. it's encrypted). */
+      targetNotes: string[];
+    }
   | {
       type: 'ymt';
       file: string;

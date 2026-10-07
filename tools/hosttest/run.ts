@@ -1,9 +1,10 @@
 /* Drives PreviewSession (the real host code) against files on disk. Usage: node out/hosttest.js <file> */
 import { GtaPreviewProvider } from '../../src/host/previewProvider';
-import { Uri } from './vscode-stub';
+import { testRoot, Uri } from './vscode-stub';
 
 const file = process.argv[2];
-const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
+testRoot.path ||= process.env.ROOT ?? file.slice(0, file.lastIndexOf('/'));
+const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt', ycd: 'ycd' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
 let onMessage: (m: unknown) => void = () => {};
 const received: any[] = [];
 const panel = {
@@ -69,6 +70,7 @@ const settle = () => new Promise((r) => setTimeout(r, 50));
     }
   }
   if (first.type === 'text') console.log(`text view: ${first.note}`);
+  if (first.type === 'ycd') console.log(`ycd: ${first.ycd.clips.length} clips [${first.ycd.clips.map((c: any) => c.name).join(', ')}], targets [${first.targets.map((t: any) => t.file).join(', ')}], notes ${JSON.stringify(first.targetNotes)}`);
   if (first.type === 'ybn') console.log(`ybn: ${first.bounds.triangles} tris, ${first.bounds.primitives.length} primitives`);
   const errors = received.filter((m) => m.type === 'error');
   if (errors.length) console.log('errors:', errors.map((e) => e.message));

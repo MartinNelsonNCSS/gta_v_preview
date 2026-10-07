@@ -22,6 +22,7 @@ export class Viewer {
   /** True once the user has moved the camera; auto-framing stops after that. */
   userMoved = false;
   private lastFramed?: THREE.Box3;
+  private viewDir = new THREE.Vector3(0.9, -1.4, 0.8).normalize();
   private framed = false;
   private readonly clipPlane = new THREE.Plane(new THREE.Vector3(0, 0, -1), 0);
 
@@ -105,6 +106,11 @@ export class Viewer {
     this.requestRender();
   }
 
+  /** Sets the direction the camera looks from when framing (e.g. a ped's front). */
+  setViewDirection(x: number, y: number, z: number): void {
+    this.viewDir.set(x, y, z).normalize();
+  }
+
   /** Points the camera at `box` (defaults to all content). */
   frame(box?: THREE.Box3): void {
     const b = box ?? new THREE.Box3().setFromObject(this.content);
@@ -118,8 +124,7 @@ export class Viewer {
     const vfov = THREE.MathUtils.degToRad(this.camera.fov / 2);
     const hfov = Math.atan(Math.tan(vfov) * this.camera.aspect);
     const dist = radius / Math.sin(Math.min(vfov, hfov));
-    const dir = new THREE.Vector3(0.9, -1.4, 0.8).normalize();
-    this.camera.position.copy(center).addScaledVector(dir, dist * 1.05);
+    this.camera.position.copy(center).addScaledVector(this.viewDir, dist * 1.05);
     this.camera.near = Math.max(dist / 1000, 0.005);
     this.camera.far = dist * 100 + radius * 10;
     this.camera.updateProjectionMatrix();

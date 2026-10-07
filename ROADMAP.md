@@ -2,6 +2,11 @@
 
 Ideas for making FiveM / GTA V modding workflows faster, roughly in priority order.
 
+## Done (0.10.0)
+
+### Animation preview
+`.ycd` clip dictionaries play on a built-in ped skeleton (ped clips) or on the matching vehicle/prop model.
+
 ## Done (0.9.0)
 
 ### 1. Resource health check
@@ -33,6 +38,8 @@ this archetype?", "where is this texture defined?". **Find Asset…** searches e
 
 - **CodeWalker / Sollumz XML** export and import for round-tripping with other tools.
 - **Clothing pack editing** — add drawables and texture variations to a `.ymt` (overlaps with grzyClothTool).
+- **Animations on ped models** — skin a ped's clothing `.ydd` to the animated skeleton instead of a stick figure;
+  facial animation; UV-scroll tracks.
 - **Full ped / vehicle assembly** — preview all components of a ped or vehicle together in one 3D view.
 - **Fragment physics** — per-part collision and breakable children in `.yft`.
 - **Gen9 (RSC8)** resources.

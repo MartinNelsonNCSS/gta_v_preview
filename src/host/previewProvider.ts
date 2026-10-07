@@ -7,9 +7,14 @@ import { parseYmap } from '../formats/ymap';
 import { parseYbn } from '../formats/bounds';
 import { parseYft } from '../formats/yft';
 import { parseYmt } from '../formats/ymt';
+import { parseYcd } from '../formats/ycd';
+import { isPedAnimation } from '../formats/pedSkeleton';
+import { isEncrypted } from '../formats/scan';
 import { exportDds, readFullTexture, replaceTexture, TextureFileKind } from '../formats/textureEdit';
 import type {
+  AnimTarget,
   ArchetypeData,
+  ClipDictionaryData,
   ArchetypeRequest,
   DrawableData,
   HostToWebview,
@@ -28,6 +33,7 @@ export const VIEW_TYPES: Record<ViewKind, string> = {
   ymap: 'gtaPreview.ymap',
   ybn: 'gtaPreview.ybn',
   ymt: 'gtaPreview.ymt',
+  ycd: 'gtaPreview.ycd',
 };
 
 /** Meta formats that also exist as XML (CodeWalker/Sollumz exports, hand-edited files). */
@@ -226,6 +232,12 @@ class PreviewSession {
         case 'ybn':
           this.post({ type: 'ybn', file, bounds: parseYbn(data) });
           break;
+        case 'ycd': {
+          const ycd = parseYcd(data);
+          const { targets, notes } = await this.animationTargets(ycd);
+          this.post({ type: 'ycd', file, ycd, targets, targetNotes: notes });
+          break;
+        }
         case 'ymt': {
           // Ped variation files describe models/textures that sit next to them.
           const dir = dirname(this.uri).path.toLowerCase() + '/';
@@ -239,6 +251,52 @@ class PreviewSession {
     } catch (err) {
       this.post({ type: 'error', message: (err as Error).message });
     }
+  }
+
+  /**
+   * Models that non-ped animations in a clip dictionary can drive: the model
+   * named by a `va_<model>.ycd` file, then models in the same folder, kept when
+   * their skeleton contains the animated bones.
+   */
+  private async animationTargets(ycd: ClipDictionaryData): Promise<{ targets: AnimTarget[]; notes: string[] }> {
+    const wanted = ycd.animations
+      .map((a) => new Set(a.tracks.filter((t) => t.track <= 2 && t.boneId !== 0).map((t) => t.boneId)))
+      .filter((tags) => tags.size && !isPedAnimation(tags));
+    const targets: AnimTarget[] = [];
+    const notes: string[] = [];
+    if (!wanted.length) return { targets, notes };
+    const self = basename(this.uri).toLowerCase().replace(/\.ycd$/, '');
+    const named = self.startsWith('va_') ? self.slice(3) : self;
+    const dir = dirname(this.uri).path.toLowerCase() + '/';
+    const models = (await this.index.all()).filter((f) => ['ydr', 'yft', 'ydd'].includes(f.ext));
+    const candidates = [
+      ...models.filter((f) => f.base === named),
+      ...models.filter((f) => f.base !== named && f.uri.path.toLowerCase().startsWith(dir) && !/_hi$|\+hi$/.test(f.base)),
+    ].slice(0, 24);
+    const maxSize = Math.min(512, config('maxTextureSize', 1024));
+    const encrypted: string[] = [];
+    for (const f of candidates) {
+      try {
+        const data = await vscode.workspace.fs.readFile(f.uri);
+        if (isEncrypted(data)) {
+          encrypted.push(`${f.base}.${f.ext}`);
+          continue;
+        }
+        const drawables = f.ext === 'ydd' ? parseYdd(data, { maxSize }) : f.ext === 'yft' ? parseYft(data, { maxSize }) : [parseYdr(data, { maxSize })];
+        for (const d of withOrigin(drawables, f.uri)) {
+          const tags = new Set(d.bones.map((b) => b.tag));
+          if (wanted.some((w) => [...w].some((t) => tags.has(t)))) targets.push({ file: `${f.base}.${f.ext}`, drawable: d });
+        }
+      } catch {
+        // Unreadable models are simply not offered.
+      }
+      if (targets.length >= 8) break;
+    }
+    if (encrypted.length) {
+      const list = encrypted.length > 3 ? `${encrypted.slice(0, 3).join(', ')} and ${encrypted.length - 3} more` : encrypted.join(', ');
+      notes.push(`${list} ${encrypted.length === 1 ? 'is' : 'are'} escrow-encrypted, so ${encrypted.length === 1 ? 'its skeleton' : 'their skeletons'} can't be read.`);
+    }
+    return { targets, notes };
   }
 
   /** Names of nearby files, used to resolve name hashes. */

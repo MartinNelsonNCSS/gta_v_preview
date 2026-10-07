@@ -49,9 +49,9 @@ export const workspace = {
     readDirectory: async (u: Uri) => (await fs.readdir(u.path, { withFileTypes: true })).map((e) => [e.name, e.isDirectory() ? FileType.Directory : FileType.File] as [string, FileType]),
   },
   getWorkspaceFolder: () => ({ uri: Uri.file(testRoot.path), name: 'test', index: 0 }),
-  findFiles: async (glob: string) => {
+  findFiles: async (glob: string | RelativePattern) => {
     const files = await walk(testRoot.path);
-    const exts = /\{([^}]+)\}/.exec(glob)?.[1].split(',') ?? [];
+    const exts = /\{([^}]+)\}/.exec(typeof glob === 'string' ? glob : glob.pattern)?.[1].split(',') ?? [];
     return files.filter((f) => exts.some((x) => (x.includes('.') ? f.endsWith('/' + x) : f.toLowerCase().endsWith('.' + x)))).map((f) => Uri.file(f));
   },
   getConfiguration: () => ({ get: (_k: string, d: unknown) => d }),

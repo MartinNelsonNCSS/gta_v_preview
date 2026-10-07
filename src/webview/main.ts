@@ -8,6 +8,7 @@ import { ymapView } from './views/ymapView';
 import { textView, ymtView } from './views/ymtView';
 import { converterView } from './views/converterView';
 import { optimizerView } from './views/optimizerView';
+import { ycdView } from './views/ycdView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
@@ -42,6 +43,9 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'ybn':
       show(ybnView(m.file, m.bounds));
+      break;
+    case 'ycd':
+      show(ycdView(m.file, m.ycd, m.targets, m.targetNotes));
       break;
     case 'ymt':
       show(ymtView(m.file, m.ymt, m.files));

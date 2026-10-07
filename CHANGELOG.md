@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0
+
+- **Animation preview (`.ycd`)**: play, pause, step and scrub clips, with speed, looping and root motion.
+  - Ped animations play on a built-in GTA V ped skeleton, so no ped model is needed.
+  - Vehicle and prop animations (e.g. `va_<vehicle>.ycd` convertible roofs) play on the matching model in the same folder.
+  - Sidebar with clip range, frames, track types, events and animated bones; dictionaries with several clips get a clip picker.
+
 ## 0.9.0
 
 - **GTA V sidebar** with an **Assets** browser (resources → models, texture dictionaries, archetypes, maps, collisions, ped files → contents), **Find Asset…** and **Find Usages**.

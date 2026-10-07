@@ -154,6 +154,25 @@ input:focus {
   min-width: 0;
   overflow: hidden;
 }
+.anim-stage {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.anim-transport {
+  border-top: 1px solid var(--border);
+  border-bottom: none;
+}
+.anim-scrub {
+  flex: 1;
+  min-width: 80px;
+}
+.anim-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 15em;
+}
 .stage canvas {
   display: block;
   width: 100%;

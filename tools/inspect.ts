@@ -7,6 +7,7 @@ import { parseYtyp } from '../src/formats/ytyp';
 import { parseYmap } from '../src/formats/ymap';
 import { parseYft } from '../src/formats/yft';
 import { parseYbn } from '../src/formats/bounds';
+import { parseYcd } from '../src/formats/ycd';
 import type { DrawableData } from '../src/shared/model';
 
 const opts = { maxSize: 1024 };
@@ -47,6 +48,14 @@ for (const file of process.argv.slice(2).filter((a) => !a.startsWith('-'))) {
     else if (ext === 'ytd') {
       const t = parseYtd(data, opts);
       console.log(`  ${t.length} textures: ${t.map((x) => `${x.name} ${x.width}x${x.height} ${x.format}${x.pixels ? '' : ' (no data)'}`).join(', ')}`);
+    } else if (ext === 'ycd') {
+      const d = parseYcd(data);
+      console.log(`  ${d.clips.length} clips, ${d.animations.length} animations`);
+      for (const c of d.clips) {
+        const a = d.animations[c.animation];
+        const tracks = a ? [...new Set(a.tracks.map((t) => t.track))].map((t) => `${t}×${a.tracks.filter((x) => x.track === t).length}`).join(' ') : '-';
+        console.log(`  ${c.name}: ${c.start.toFixed(2)}–${c.end.toFixed(2)} s, ${a ? `${a.frames} frames` : 'no animation'}, tracks ${tracks}${c.tags.length ? `, ${c.tags.length} events` : ''}`);
+      }
     } else if (ext === 'ybn') {
       const b = parseYbn(data);
       console.log(`  bb=[${b.bbMin.map((v) => v.toFixed(2))}]..[${b.bbMax.map((v) => v.toFixed(2))}] tris=${b.triangles} prims=${b.primitives.length} types=${JSON.stringify(b.typeCounts)}`);

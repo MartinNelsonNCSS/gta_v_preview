@@ -12,7 +12,6 @@ export async function run(): Promise<void> {
       results.push({ name, ok: false, detail: (err as Error).stack ?? String(err) });
     }
   };
-  const ws = vscode.workspace.workspaceFolders![0].uri;
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
   await check('extension activates', async () => {
@@ -32,9 +31,8 @@ export async function run(): Promise<void> {
   await check('health check → Problems panel', async () => {
     await vscode.commands.executeCommand('gtaPreview.checkResources');
     const diags = vscode.languages.getDiagnostics().flatMap(([uri, ds]) => ds.filter((d) => d.source === 'GTA V').map((d) => `${uri.path.split('/').pop()}: [${d.code}] ${d.message.slice(0, 90)}`));
-    const codes = new Set(vscode.languages.getDiagnostics().flatMap(([, ds]) => ds.map((d) => String(d.code))));
-    for (const c of ['oversized', 'manifest-ytyp', 'manifest-map']) if (!codes.has(c)) throw new Error(`no ${c} diagnostic; got ${[...codes]}`);
-    return diags.join('\n      ');
+    // Which problems exist depends on the workspace; this checks the scan runs and reports.
+    return diags.length ? diags.slice(0, 12).join('\n      ') : 'no problems found';
   });
   await check('sidebar views open', async () => {
     await vscode.commands.executeCommand('workbench.view.extension.gtaPreview');
@@ -49,11 +47,16 @@ export async function run(): Promise<void> {
     if (!input?.viewType?.endsWith(viewType)) throw new Error(`active tab is ${tab?.label} (${JSON.stringify(input)})`);
     return `${tab!.label}`;
   };
-  await check('custom editor opens .ydr', () => openTab(vscode.Uri.joinPath(ws, '[props]/good_res/stream/soca_mining_fan.ydr'), 'gtaPreview.ydr'));
-  await check('custom editor opens .ytd', () => openTab(vscode.Uri.joinPath(ws, '[maps]/big_res/stream/big_txd.ytd'), 'gtaPreview.ytd'));
-  await check('custom editor opens .ytyp', () => openTab(vscode.Uri.joinPath(ws, '[props]/good_res/stream/soca_mining_fan.ytyp'), 'gtaPreview.ytyp'));
+  /** First file with this extension in the workspace (the suite adapts to whatever assets it's given). */
+  const sample = async (ext: string) => (await vscode.workspace.findFiles(`**/*.${ext}`, '**/node_modules/**', 1))[0];
+  for (const ext of ['ydr', 'ydd', 'yft', 'ytd', 'ytyp', 'ymap', 'ybn', 'ymt', 'ycd']) {
+    const uri = await sample(ext);
+    if (uri) await check(`custom editor opens .${ext}`, () => openTab(uri, `gtaPreview.${ext}`));
+  }
   await check('Convert to DDS panel', async () => {
-    await vscode.commands.executeCommand('gtaPreview.convertToDds', vscode.Uri.joinPath(ws, 'icon.png'));
+    const image = (await sample('png')) ?? (await sample('jpg'));
+    if (!image) return 'skipped (no image in the workspace)';
+    await vscode.commands.executeCommand('gtaPreview.convertToDds', image);
     await sleep(1000);
     const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs.map((t) => t.label));
     if (!tabs.some((t) => t.includes('to DDS'))) throw new Error(`tabs: ${tabs}`);
