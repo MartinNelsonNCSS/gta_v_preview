@@ -99,7 +99,8 @@ body {
 }
 
 select,
-input[type='search'] {
+input[type='search'],
+input[type='text'] {
   background: var(--vscode-dropdown-background, var(--vscode-input-background));
   color: var(--vscode-dropdown-foreground, var(--vscode-input-foreground));
   border: 1px solid var(--vscode-dropdown-border, var(--border));
@@ -107,10 +108,13 @@ input[type='search'] {
   padding: 3px 6px;
   font: inherit;
 }
-input[type='search'] {
-  min-width: 200px;
+input[type='search'],
+input[type='text'] {
   background: var(--vscode-input-background);
   color: var(--vscode-input-foreground);
+}
+input[type='search'] {
+  min-width: 200px;
 }
 select:focus,
 input:focus {
@@ -582,6 +586,17 @@ input:focus {
   flex-shrink: 0;
 }
 
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 6px;
+  margin-top: 6px;
+}
+.legend .swatch {
+  display: inline-block;
+}
+
 .entity-row.nested {
   padding-left: 28px;
 }
@@ -799,4 +814,69 @@ input:focus {
 }
 .opt-bad {
   color: var(--bad);
+}
+
+/* -- .ytd management ------------------------------------------------------- */
+
+.select-bar {
+  background: var(--vscode-editorWidget-background, rgba(128, 128, 128, 0.1));
+}
+.ytd-card.selected {
+  border-color: var(--vscode-focusBorder);
+  background: var(--hover);
+}
+.card-check {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  z-index: 1;
+  pointer-events: none;
+}
+.add-panel {
+  width: min(720px, 95vw);
+}
+.add-list {
+  overflow: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.add-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.add-thumb-box {
+  width: 56px;
+  height: 56px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.add-thumb {
+  max-width: 56px;
+  max-height: 56px;
+}
+.add-fields {
+  flex: 1;
+  min-width: 0;
+}
+.add-name {
+  width: 100%;
+  box-sizing: border-box;
+}
+.add-source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.add-options {
+  padding: 8px 12px;
+  border-top: 1px solid var(--border);
+  align-items: center;
+}
+.warn {
+  color: var(--vscode-editorWarning-foreground, #cca700);
 }

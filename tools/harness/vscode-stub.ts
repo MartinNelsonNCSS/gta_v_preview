@@ -65,19 +65,33 @@ export const window = {
     console.warn(m);
     return undefined;
   },
-  showOpenDialog: () =>
+  showOpenDialog: (o?: { canSelectMany?: boolean }) =>
     new Promise<Uri[] | undefined>((resolve) => {
       const input = document.createElement('input');
       input.type = 'file';
+      input.multiple = !!o?.canSelectMany;
       input.onchange = async () => {
-        const f = input.files?.[0];
-        if (!f) return resolve(undefined);
-        const path = `/__mem__/${f.name}`;
-        memory.set(path, new Uint8Array(await f.arrayBuffer()));
-        resolve([Uri.file(path)]);
+        const files = [...(input.files ?? [])];
+        if (!files.length) return resolve(undefined);
+        const uris: Uri[] = [];
+        for (const f of files) {
+          const path = `/__mem__/${f.name}`;
+          memory.set(path, new Uint8Array(await f.arrayBuffer()));
+          uris.push(Uri.file(path));
+        }
+        resolve(uris);
       };
       input.click();
     }),
+  showInputBox: async (o: { prompt?: string; value?: string; validateInput?: (v: string) => string | undefined }) => {
+    for (;;) {
+      const v = globalThis.prompt(o.prompt ?? '', o.value ?? '');
+      if (v === null) return undefined;
+      const problem = o.validateInput?.(v);
+      if (!problem) return v;
+      globalThis.alert(problem);
+    }
+  },
   showSaveDialog: async (o: { defaultUri?: Uri }) => Uri.file(`/__mem__/${o.defaultUri?.path.split('/').pop() ?? 'export'}`),
   registerCustomEditorProvider: () => noop,
 };
@@ -86,6 +100,26 @@ export const window = {
   const path = `/__mem__/${name}`;
   memory.set(path, data);
   window.showOpenDialog = async () => [Uri.file(path)];
+};
+/** Test hook: inject several picked files (multi-select dialogs). */
+(globalThis as unknown as { __harnessPickMany?: (files: { name: string; data: Uint8Array }[]) => void }).__harnessPickMany = (files) => {
+  const uris = files.map((f) => {
+    const path = `/__mem__/${f.name}`;
+    memory.set(path, f.data);
+    return Uri.file(path);
+  });
+  window.showOpenDialog = async () => uris;
+};
+/** Test hook: answer the next input box without a prompt. */
+(globalThis as unknown as { __harnessInput?: (value: string | undefined) => void }).__harnessInput = (value) => {
+  window.showInputBox = async () => value;
+};
+/** Test hook: answer modal confirmations without a dialog. */
+(globalThis as unknown as { __harnessConfirm?: (yes: boolean) => void }).__harnessConfirm = (yes) => {
+  window.showWarningMessage = async (m: string, opts?: { modal?: boolean; detail?: string }, ...items: string[]) => {
+    console.warn('CONFIRM', m, opts?.detail ?? '');
+    return opts?.modal && items.length && yes ? items[0] : undefined;
+  };
 };
 (globalThis as unknown as { __harnessMemory?: Map<string, Uint8Array> }).__harnessMemory = memory;
 export const commands = {

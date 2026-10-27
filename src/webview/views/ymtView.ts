@@ -97,16 +97,17 @@ class SlotBrowser {
   private row(slot: PedSlot, d: PedDrawable): HTMLElement {
     const model = this.resolve(d.file, ['ydd', 'ydr', 'yft']);
     const found = d.textures.filter((t) => this.resolve(t.file, ['ytd'])).length;
+    const cloth = this.resolve(d.file, ['yld']);
     const row = h(
       'div',
       {
         class: 'entity-row slot-row',
         onclick: () => this.select(slot, d, row),
-        title: `${d.file} — model ${model ? 'found' : 'missing'}, ${found}/${d.textures.length} textures found`,
+        title: `${d.file} — model ${model ? 'found' : 'missing'}, ${found}/${d.textures.length} textures found${d.cloth || cloth ? `, cloth physics ${cloth ? 'found' : 'missing'}` : ''}`,
       },
       h('span', { class: `dot ${model ? 'ok' : 'missing'}` }),
       `${String(d.index).padStart(3, '0')}`,
-      h('span', { class: 'muted' }, ` · ${d.textures.length} tex${d.cloth ? ' · cloth' : ''}`)
+      h('span', { class: 'muted' }, ` · ${d.textures.length} tex${d.cloth || cloth ? ' · cloth' : ''}`)
     );
     return row;
   }
@@ -116,7 +117,12 @@ class SlotBrowser {
     row.classList.add('selected');
     this.selectedRow = row;
     const token = ++this.token;
-    this.title.replaceChildren(h('strong', null, `${slot.label} ${String(d.index).padStart(3, '0')}`), h('span', { class: 'muted' }, ` · ${d.file}`));
+    const cloth = this.resolve(d.file, ['yld']);
+    this.title.replaceChildren(
+      h('strong', null, `${slot.label} ${String(d.index).padStart(3, '0')}`),
+      h('span', { class: 'muted' }, ` · ${d.file}`),
+      ...(cloth ? [h('button', { class: 'chip', title: 'Open this drawable\u2019s cloth physics (.yld)', onclick: () => vscode.postMessage({ type: 'openAsset', name: cloth, ext: 'yld' }) }, 'Open cloth')] : [])
+    );
     void this.loadModel(d, token);
     void this.loadVariations(d, token);
   }

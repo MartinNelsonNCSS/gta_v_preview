@@ -2,6 +2,11 @@
 
 Ideas for making FiveM / GTA V modding workflows faster, roughly in priority order.
 
+## Done (0.11.0)
+
+### Cloth physics preview
+`.yld` cloth dictionaries: simulated mesh, pinned/free vertices, links and collision shapes over the clothing model.
+
 ## Done (0.10.0)
 
 ### Animation preview
@@ -40,6 +45,7 @@ this archetype?", "where is this texture defined?". **Find Asset…** searches e
 - **Clothing pack editing** — add drawables and texture variations to a `.ymt` (overlaps with grzyClothTool).
 - **Animations on ped models** — skin a ped's clothing `.ydd` to the animated skeleton instead of a stick figure;
   facial animation; UV-scroll tracks.
+- **Cloth simulation** — run the cloth physics live (gravity, collisions) on the `.yld` preview.
 - **Full ped / vehicle assembly** — preview all components of a ped or vehicle together in one 3D view.
 - **Fragment physics** — per-part collision and breakable children in `.yft`.
 - **Gen9 (RSC8)** resources.

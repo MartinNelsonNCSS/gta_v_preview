@@ -1,13 +1,13 @@
 {
   "name": "gta-v-asset-preview",
   "displayName": "GTA V Asset Preview",
-  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn), ped clothing (.ymt) and animations (.ycd). Includes a FiveM resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
+  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn), ped clothing (.ymt), animations (.ycd) and cloth physics (.yld). Includes a FiveM resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#10141a",
     "theme": "dark"
   },
-  "version": "0.10.0",
+  "version": "0.11.0",
   "publisher": "ncss-ltd",
   "license": "GPL-3.0-only",
   "repository": {
@@ -39,6 +39,7 @@
     "ybn",
     "yft",
     "ycd",
+    "yld",
     "ymt"
   ],
   "main": "./dist/extension.js",
@@ -127,6 +128,16 @@
         "selector": [
           {
             "filenamePattern": "*.ycd"
+          }
+        ],
+        "priority": "default"
+      },
+      {
+        "viewType": "gtaPreview.yld",
+        "displayName": "GTA V Cloth Preview",
+        "selector": [
+          {
+            "filenamePattern": "*.yld"
           }
         ],
         "priority": "default"

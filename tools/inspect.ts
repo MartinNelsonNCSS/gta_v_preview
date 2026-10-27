@@ -8,6 +8,7 @@ import { parseYmap } from '../src/formats/ymap';
 import { parseYft } from '../src/formats/yft';
 import { parseYbn } from '../src/formats/bounds';
 import { parseYcd } from '../src/formats/ycd';
+import { parseYld } from '../src/formats/yld';
 import type { DrawableData } from '../src/shared/model';
 
 const opts = { maxSize: 1024 };
@@ -48,6 +49,13 @@ for (const file of process.argv.slice(2).filter((a) => !a.startsWith('-'))) {
     else if (ext === 'ytd') {
       const t = parseYtd(data, opts);
       console.log(`  ${t.length} textures: ${t.map((x) => `${x.name} ${x.width}x${x.height} ${x.format}${x.pixels ? '' : ' (no data)'}`).join(', ')}`);
+    } else if (ext === 'yld') {
+      for (const c of parseYld(data).cloths) {
+        const n = c.positions.length / 3;
+        console.log(`  cloth "${c.name}": ${n} vertices (${c.pinned} pinned), ${c.indices.length / 3} triangles, ${c.edges.length / 2} links${c.bendEdges.length ? ` + ${c.bendEdges.length / 2} bend` : ''}`);
+        console.log(`  bb=[${c.bbMin.map((v) => v.toFixed(2))}]..[${c.bbMax.map((v) => v.toFixed(2))}] pinned to bones ${c.boneTags.join(',')}`);
+        console.log(`  collision: ${c.colliders.map((k) => `bone ${k.boneTag} (${k.bounds.primitives.length + k.bounds.triangles})`).join(', ')}`);
+      }
     } else if (ext === 'ycd') {
       const d = parseYcd(data);
       console.log(`  ${d.clips.length} clips, ${d.animations.length} animations`);

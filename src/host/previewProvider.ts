@@ -8,9 +8,10 @@ import { parseYbn } from '../formats/bounds';
 import { parseYft } from '../formats/yft';
 import { parseYmt } from '../formats/ymt';
 import { parseYcd } from '../formats/ycd';
+import { parseYld } from '../formats/yld';
 import { isPedAnimation } from '../formats/pedSkeleton';
 import { isEncrypted } from '../formats/scan';
-import { exportDds, readFullTexture, replaceTexture, TextureFileKind } from '../formats/textureEdit';
+import { editYtd, encodeImage, exportDds, NewTexture, readFullTexture, replaceTexture, TextureFileKind, textureNameProblem, YtdEdit } from '../formats/textureEdit';
 import type {
   AnimTarget,
   ArchetypeData,
@@ -34,6 +35,7 @@ export const VIEW_TYPES: Record<ViewKind, string> = {
   ybn: 'gtaPreview.ybn',
   ymt: 'gtaPreview.ymt',
   ycd: 'gtaPreview.ycd',
+  yld: 'gtaPreview.yld',
 };
 
 /** Meta formats that also exist as XML (CodeWalker/Sollumz exports, hand-edited files). */
@@ -168,6 +170,15 @@ class PreviewSession {
         case 'pickImage':
           await this.pickImage(message.requestId);
           break;
+        case 'pickImages':
+          await this.pickImages(message.requestId);
+          break;
+        case 'editYtd':
+          await this.editYtd(message);
+          break;
+        case 'renameTexture':
+          await this.renameTexture(message.requestId, message.origin, message.name);
+          break;
         case 'getFullTexture':
           await this.getFullTexture(message.requestId, message.origin, message.name);
           break;
@@ -238,11 +249,14 @@ class PreviewSession {
           this.post({ type: 'ycd', file, ycd, targets, targetNotes: notes });
           break;
         }
+        case 'yld':
+          this.post({ type: 'yld', file, yld: parseYld(data), ...(await this.clothModel()) });
+          break;
         case 'ymt': {
           // Ped variation files describe models/textures that sit next to them.
           const dir = dirname(this.uri).path.toLowerCase() + '/';
           const files = (await this.index.all())
-            .filter((f) => ['ydd', 'ydr', 'yft', 'ytd'].includes(f.ext) && f.uri.path.toLowerCase().startsWith(dir))
+            .filter((f) => ['ydd', 'ydr', 'yft', 'ytd', 'yld'].includes(f.ext) && f.uri.path.toLowerCase().startsWith(dir))
             .map((f) => `${f.base}.${f.ext}`);
           this.post({ type: 'ymt', file, ymt: parseYmt(data, { knownNames: await this.knownNames() }), files });
           break;
@@ -297,6 +311,40 @@ class PreviewSession {
       notes.push(`${list} ${encrypted.length === 1 ? 'is' : 'are'} escrow-encrypted, so ${encrypted.length === 1 ? 'its skeleton' : 'their skeletons'} can't be read.`);
     }
     return { targets, notes };
+  }
+
+  /**
+   * The clothing model a .yld belongs to: the .ydd with the same name, plus the
+   * first texture variation (`<name>^accs_000_u.yld` → `<name>^accs_diff_000_a_uni.ytd`).
+   */
+  private async clothModel(): Promise<Pick<Extract<HostToWebview, { type: 'yld' }>, 'model' | 'variation'>> {
+    const base = basename(this.uri).toLowerCase().replace(/\.yld$/, '');
+    const files = await this.index.all();
+    const dir = dirname(this.uri).path.toLowerCase();
+    const near = (f: AssetFile) => dirname(f.uri).path.toLowerCase() === dir;
+    const ydd = files.filter((f) => f.ext === 'ydd' && f.base === base).sort((a, b) => Number(near(b)) - Number(near(a)))[0];
+    if (!ydd) return {};
+    const maxSize = config('maxTextureSize', 1024);
+    let model: { file: string; drawables: DrawableData[] } | undefined;
+    try {
+      const data = await vscode.workspace.fs.readFile(ydd.uri);
+      if (!isEncrypted(data)) model = { file: `${ydd.base}.ydd`, drawables: withOrigin(parseYdd(data, { maxSize }), ydd.uri) };
+    } catch {
+      return {};
+    }
+    const m = /^(.*)_(\d{3})_[a-z]$/.exec(base);
+    const prefix = m ? `${m[1]}_diff_${m[2]}_` : undefined;
+    const ytd = prefix ? files.filter((f) => f.ext === 'ytd' && f.base.startsWith(prefix)).sort((a, b) => a.base.localeCompare(b.base))[0] : undefined;
+    let variation: TextureData | undefined;
+    if (ytd) {
+      try {
+        const data = await vscode.workspace.fs.readFile(ytd.uri);
+        variation = isEncrypted(data) ? undefined : tagOrigin(parseYtd(data, { maxSize }), ytd.uri)[0];
+      } catch {
+        // The model still shows without its variation texture.
+      }
+    }
+    return { model, variation };
   }
 
   /** Names of nearby files, used to resolve name hashes. */
@@ -536,17 +584,81 @@ class PreviewSession {
         rgba: m.rgba,
         encoded: m.encoded,
       });
-      // Keep the first original as a backup; later saves don't overwrite it.
-      const backup = uri.with({ path: `${uri.path}.bak` });
-      try {
-        await vscode.workspace.fs.stat(backup);
-      } catch {
-        await vscode.workspace.fs.writeFile(backup, original);
-      }
-      await vscode.workspace.fs.writeFile(uri, updated);
+      await writeWithBackup(uri, original, updated);
       this.post({ type: 'textureReplaced', requestId: m.requestId, ok: true, file });
     } catch (err) {
       this.post({ type: 'textureReplaced', requestId: m.requestId, ok: false, error: (err as Error).message });
+    }
+  }
+
+  private async pickImages(requestId: number): Promise<void> {
+    const picked = await vscode.window.showOpenDialog({
+      canSelectMany: true,
+      openLabel: 'Add to dictionary',
+      defaultUri: dirname(this.uri),
+      filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif', 'dds'] },
+    });
+    const files = await Promise.all((picked ?? []).map(async (uri) => ({ name: basename(uri), data: await vscode.workspace.fs.readFile(uri) })));
+    this.post({ type: 'pickedImages', requestId, files });
+  }
+
+  /** Resolves a .ytd origin sent by the webview. */
+  private async ytdFile(origin: string): Promise<vscode.Uri> {
+    const { uri, kind } = await this.textureFile(origin);
+    if (kind !== 'ytd') throw new Error('Textures can only be added, deleted or renamed in a .ytd.');
+    return uri;
+  }
+
+  private async editYtd(m: Extract<WebviewToHost, { type: 'editYtd' }>): Promise<void> {
+    const reply = (r: Omit<Extract<HostToWebview, { type: 'ytdEdited' }>, 'type' | 'requestId'>) => this.post({ type: 'ytdEdited', requestId: m.requestId, ...r });
+    try {
+      const uri = await this.ytdFile(m.origin);
+      const file = basename(uri);
+      const original = await vscode.workspace.fs.readFile(uri);
+      // Encode before asking, so problems show up first.
+      const add: NewTexture[] = (m.add ?? []).map((t) => ({ ...t, ...encodeImage(t.name, t) }));
+      const existing = new Set(parseYtd(original, { maxSize: 1 }).map((t) => t.name.toLowerCase()));
+      const replaced = add.filter((t) => existing.has(t.name.toLowerCase())).map((t) => t.name);
+      const list = (names: string[]) => (names.length > 8 ? `${names.slice(0, 8).join(', ')} and ${names.length - 8} more` : names.join(', '));
+      const parts = [
+        add.length && `add ${add.length} texture${add.length === 1 ? '' : 's'} (${list(add.map((t) => `${t.name} ${t.width}×${t.height} ${t.format}`))})`,
+        replaced.length && `replace the existing ${list(replaced)}`,
+        m.remove?.length && `delete ${list(m.remove)}`,
+      ].filter(Boolean);
+      if (!parts.length) return reply({ ok: false, cancelled: true });
+      const action = m.remove?.length && !add.length ? 'Delete' : 'Save';
+      const choice = await vscode.window.showWarningMessage(
+        `${action === 'Delete' ? `Delete ${m.remove!.length} texture${m.remove!.length === 1 ? '' : 's'}` : 'Change textures'} in ${file}?`,
+        { modal: true, detail: `This will ${parts.join('; ')}. The dictionary is rebuilt; the original file is kept as ${file}.bak.` },
+        action
+      );
+      if (choice !== action) return reply({ ok: false, cancelled: true });
+      const edit: YtdEdit = { remove: m.remove, add };
+      await writeWithBackup(uri, original, editYtd(original, edit));
+      reply({ ok: true, file });
+    } catch (err) {
+      reply({ ok: false, error: (err as Error).message });
+    }
+  }
+
+  private async renameTexture(requestId: number, origin: string, name: string): Promise<void> {
+    const reply = (r: Omit<Extract<HostToWebview, { type: 'ytdEdited' }>, 'type' | 'requestId'>) => this.post({ type: 'ytdEdited', requestId, ...r });
+    try {
+      const uri = await this.ytdFile(origin);
+      const file = basename(uri);
+      const original = await vscode.workspace.fs.readFile(uri);
+      const others = new Set(parseYtd(original, { maxSize: 1 }).map((t) => t.name.toLowerCase()).filter((n) => n !== name.toLowerCase()));
+      const to = await vscode.window.showInputBox({
+        title: `Rename texture in ${file}`,
+        prompt: `New name for "${name}". Models find textures by name, so update any that use it. The original file is kept as ${file}.bak.`,
+        value: name,
+        validateInput: (v) => textureNameProblem(v.trim()) ?? (others.has(v.trim().toLowerCase()) ? `A texture named "${v.trim()}" already exists.` : undefined),
+      });
+      if (to === undefined || to.trim() === name) return reply({ ok: false, cancelled: true });
+      await writeWithBackup(uri, original, editYtd(original, { rename: [{ from: name, to: to.trim() }] }));
+      reply({ ok: true, file });
+    } catch (err) {
+      reply({ ok: false, error: (err as Error).message });
     }
   }
 
@@ -577,16 +689,27 @@ class PreviewSession {
     }
   }
 
-  private async openAsset(name: string, ext: 'ydr' | 'ydd' | 'yft' | 'ytd'): Promise<void> {
+  private async openAsset(name: string, ext: 'ydr' | 'ydd' | 'yft' | 'ytd' | 'yld'): Promise<void> {
     const hash = nameToHash(name);
     const file = (await this.index.byExt(ext)).find((f) => f.hash === hash);
     if (!file) {
       void vscode.window.showWarningMessage(`Could not find ${name}.${ext} near ${basename(this.uri)}.`);
       return;
     }
-    const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytd: 'ytd' } as const)[ext];
+    const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytd: 'ytd', yld: 'yld' } as const)[ext];
     await vscode.commands.executeCommand('vscode.openWith', file.uri, VIEW_TYPES[kind]);
   }
+}
+
+/** Writes `updated`, keeping the first original as `<file>.bak` (later saves don't overwrite it). */
+async function writeWithBackup(uri: vscode.Uri, original: Uint8Array, updated: Uint8Array): Promise<void> {
+  const backup = uri.with({ path: `${uri.path}.bak` });
+  try {
+    await vscode.workspace.fs.stat(backup);
+  } catch {
+    await vscode.workspace.fs.writeFile(backup, original);
+  }
+  await vscode.workspace.fs.writeFile(uri, updated);
 }
 
 function tagOrigin(textures: TextureData[], uri: vscode.Uri): TextureData[] {

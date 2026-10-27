@@ -16,7 +16,7 @@ const convert = params.get('convert');
 /** ?optimize=a.ytd,b.ytd opens the texture optimiser panel. */
 const optimize = params.get('optimize');
 const ext = file.split('.').pop()!.toLowerCase();
-const KINDS: Record<string, ViewKind> = { ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt', ycd: 'ycd' };
+const KINDS: Record<string, ViewKind> = { ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt', ycd: 'ycd', yld: 'yld' };
 
 let toHost: (m: WebviewToHost) => void = () => {};
 const panel = {

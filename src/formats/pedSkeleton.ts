@@ -75,7 +75,25 @@ const TABLE: [number, string, number, [number, number, number], [number, number,
 /** Parents always come before their children. */
 export const PED_BONES: PedBone[] = TABLE.map(([tag, name, parent, offset, rotation]) => ({ tag, name, parent, offset, rotation }));
 
-const BY_TAG = new Map(PED_BONES.map((b) => [b.tag, b]));
+/**
+ * Helper bones (roll, knee/elbow helpers) that clothing physics attaches
+ * collision shapes to. They aren't drawn; rotations follow their limb.
+ */
+export const PED_HELPER_BONES: PedBone[] = [
+  { tag: 23639, name: 'RB_L_ThighRoll', parent: 11816, offset: [0.074, 0, -0.096], rotation: [-0.02, 0.061, -0.02, 0.998] },
+  { tag: 6442, name: 'RB_R_ThighRoll', parent: 11816, offset: [0.074, 0, 0.096], rotation: [0.02, -0.043, -0.02, 0.999] },
+  { tag: 46078, name: 'MH_L_Knee', parent: 58271, offset: [0.4, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 16335, name: 'MH_R_Knee', parent: 51826, offset: [0.4, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 5232, name: 'RB_L_ArmRoll', parent: 45509, offset: [0, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 37119, name: 'RB_R_ArmRoll', parent: 40269, offset: [0, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 61007, name: 'RB_L_ForeArmRoll', parent: 61163, offset: [0.13, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 43810, name: 'RB_R_ForeArmRoll', parent: 28252, offset: [0.13, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 22711, name: 'MH_L_Elbow', parent: 45509, offset: [0.275, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 2992, name: 'MH_R_Elbow', parent: 40269, offset: [0.275, 0, 0], rotation: [0, 0, 0, 1] },
+  { tag: 35731, name: 'RB_Neck_1', parent: 39317, offset: [0.057, 0, 0], rotation: [0, 0, 0, 1] },
+];
+
+const BY_TAG = new Map([...PED_BONES, ...PED_HELPER_BONES].map((b) => [b.tag, b]));
 
 /** Other well-known ped bone tags, for naming tracks. */
 const EXTRA_NAMES: Record<number, string> = {
@@ -90,17 +108,6 @@ const EXTRA_NAMES: Record<number, string> = {
   24806: 'PH_R_Foot',
   57717: 'PH_L_Foot',
   56604: 'IK_Root',
-  2992: 'MH_R_Elbow',
-  22711: 'MH_L_Elbow',
-  16335: 'MH_R_Knee',
-  46078: 'MH_L_Knee',
-  43810: 'RB_R_ForeArmRoll',
-  61007: 'RB_L_ForeArmRoll',
-  37119: 'RB_R_ArmRoll',
-  5232: 'RB_L_ArmRoll',
-  6442: 'RB_R_ThighRoll',
-  23639: 'RB_L_ThighRoll',
-  35731: 'RB_Neck_1',
 };
 
 export function pedBone(tag: number): PedBone | undefined {

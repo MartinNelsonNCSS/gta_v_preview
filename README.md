@@ -13,6 +13,7 @@ Preview Grand Theft Auto V resource files directly in VS Code:
 | `.ybn`  | Collision viewer: meshes and primitives colour-coded by material, per-material filter, click to identify |
 | `.ytd`  | Texture gallery with a full-size viewer (RGB / alpha channels)                                        |
 | `.ycd`  | Animation player: ped clips on a built-in skeleton, vehicle/prop clips on their model, clip list and events |
+| `.yld`  | Cloth physics: simulated mesh (pinned/free vertices, links) over its clothing model, collision shapes on a reference ped |
 
 Everything is implemented in TypeScript (RSC7 decompression, drawable/meta parsing, DXT/BC texture decoding),
 so there are no native binaries or external tools like CodeWalker. It works the same on Windows, macOS, Linux,
@@ -30,7 +31,7 @@ Remote/WSL, and in vscode.dev.
 
 ## Usage
 
-Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd` or `.ycd` file. The preview opens automatically.
+Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd` or `.yld` file. The preview opens automatically.
 
 - **Orbit**: left-drag. **Pan**: right-drag or shift-drag. **Zoom**: scroll.
 - **Cut** slider: hides everything above a height, which helps when looking into interiors.
@@ -68,6 +69,15 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd` or `.y
     `<file>.bak`.
   - **Revert** discards an unsaved change. **Export PNG** / **Export DDS** save the texture: DDS exports the exact
     original data, or, when you've changed size/format/mips, a DDS encoded with those settings.
+- **Managing texture dictionaries (`.ytd`)**:
+  - **Add Textures…** (toolbar) picks one or more images (PNG/JPG/WebP/BMP/GIF/DDS). Name each one and choose its
+    format (DXT1 for opaque images, DXT5 with transparency by default; a `.dds` can be kept exactly as it is), whether
+    to resize to powers of two and whether to generate mipmaps. A new texture with an existing name replaces it.
+  - **Delete Textures…** (toolbar) lets you tick textures and delete them together.
+  - **Rename…** and **Delete** in the texture viewer act on a single texture. Models find textures by name, so
+    update any model that uses a renamed texture.
+  - Every change is confirmed first, the `.ytd` is rebuilt (entries sorted by name hash, as the game expects; new
+    textures copy their structure from an existing texture in the file), and the original is kept as `<file>.bak`.
 - **Converting images to DDS**: right-click one or more PNG/JPG/WebP/BMP/GIF/DDS files in the Explorer and choose
   **Convert to DDS…** (or run **GTA V: Convert to DDS…** from the command palette). Pick the format (DXT1, DXT5, ...),
   mipmaps (full chain, down to 4×4, or none) and size (original, nearest power of two, or a maximum), check the
@@ -80,6 +90,12 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd` or `.y
     itself when it's next to the `.ycd` (or named by `va_<model>.ycd`): each part follows its bone.
   - The sidebar shows the clip's time range, frames, track types, events (tags with their times) and the animated
     bones by name.
+- **Cloth physics (`.yld`)**: clothing that moves in game (skirts, coats, bandanas, capes) has a cloth dictionary
+  next to its model (`…^accs_000_u.ydd` + `…^accs_000_u.yld`). The preview shows the simulated cloth mesh with
+  **pinned** vertices (attached to the body) and **free** ones (simulated) in different colours, its links, the
+  clothing model with its first texture variation, and the body collision shapes the cloth reacts to, placed on a
+  faint reference ped. The sidebar lists vertex/triangle/link counts, the bone the cloth is pinned to and the
+  collision shapes per bone. In a `.ymt`, drawables with cloth are marked and have an **Open cloth** button.
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
@@ -127,6 +143,8 @@ Open the **GTA V** view in the activity bar:
 - Animations: ped clips use a stick figure rather than a ped model; facial and helper bones aren't drawn. On models,
   rigid parts follow their bones but skinned meshes stay in their rest pose. Clips built from animation lists play
   the first animation; UV and other non-bone tracks are listed but not shown. Encrypted models can't be animated.
+- Cloth: the preview shows the cloth at rest; it doesn't run the physics simulation. Collision shapes are placed on a
+  standing reference pose, so their positions are approximate.
 - BC7 textures are decoded on the GPU, so they need a GPU/driver that supports `EXT_texture_compression_bptc`.
 
 ## Development
@@ -158,7 +176,7 @@ Open VSX when the `VSCE_PAT` / `OVSX_PAT` repository secrets are set.
 ### Layout
 
 ```
-src/formats/    Pure parsers (no VS Code / DOM deps): rsc7, reader, drawable, textures, bounds, meta, ytyp, ymap, ytd, ycd, hash
+src/formats/    Pure parsers (no VS Code / DOM deps): rsc7, reader, drawable, textures, bounds, meta, ytyp, ymap, ytd, ycd, yld, hash
 src/host/       Extension host: custom editor provider, workspace asset index (texture/model lookup)
 src/webview/    three.js viewer and UI (model panel, ytd gallery, ytyp/MLO views)
 src/shared/     Message and data types shared by host and webview

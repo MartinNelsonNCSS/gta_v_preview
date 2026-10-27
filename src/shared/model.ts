@@ -311,10 +311,48 @@ export interface AnimTarget {
 }
 
 // ---------------------------------------------------------------------------
+// Cloth (.yld)
+// ---------------------------------------------------------------------------
+
+/** A collision shape the cloth reacts to, attached to a ped bone. */
+export interface ClothCollider {
+  /** Ped bone tag the shape follows. */
+  boneTag: number;
+  /** Shape transform relative to the bone, column-major 4x4. */
+  matrix: number[];
+  bounds: BoundsData;
+}
+
+export interface ClothData {
+  /** Name of the drawable this cloth belongs to (e.g. "accs_002_u"). */
+  name: string;
+  hash: number;
+  /** Simulated vertices in ped model space, 3 floats each. */
+  positions: Float32Array;
+  /** Triangles over `positions`. */
+  indices: Uint16Array;
+  /** Distance constraints (stretch links) as vertex index pairs. */
+  edges: Uint16Array;
+  /** Secondary (bend) constraints as vertex index pairs. */
+  bendEdges: Uint16Array;
+  /** The first `pinned` vertices are fixed to the body; the rest are simulated. */
+  pinned: number;
+  /** Bones the pinned vertices are skinned to. */
+  boneTags: number[];
+  colliders: ClothCollider[];
+  bbMin: Vec3;
+  bbMax: Vec3;
+}
+
+export interface YldData {
+  cloths: ClothData[];
+}
+
+// ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
 
-export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn' | 'ymt' | 'ycd';
+export type ViewKind = 'drawable' | 'dictionary' | 'fragment' | 'ytyp' | 'ytd' | 'ymap' | 'ybn' | 'ymt' | 'ycd' | 'yld';
 
 export interface ArchetypeRequest {
   /** Archetype name (may be an unresolved `hash_XXXXXXXX`). */
@@ -329,6 +367,15 @@ export type HostToWebview =
   | { type: 'ytd'; file: string; textures: TextureData[] }
   | { type: 'ymap'; file: string; ymap: YmapData }
   | { type: 'ybn'; file: string; bounds: BoundsData }
+  | {
+      type: 'yld';
+      file: string;
+      yld: YldData;
+      /** The clothing model the cloth belongs to (same-named .ydd next to the .yld), if found. */
+      model?: { file: string; drawables: DrawableData[] };
+      /** A texture variation for the model (first matching .ytd), used as its diffuse. */
+      variation?: TextureData;
+    }
   | {
       type: 'ycd';
       file: string;
@@ -349,6 +396,9 @@ export type HostToWebview =
   | { type: 'drawableFile'; requestId: number; drawables: DrawableData[]; error?: string }
   | { type: 'textureFile'; requestId: number; textures: TextureData[]; error?: string }
   | { type: 'pickedImage'; requestId: number; name?: string; data?: Uint8Array }
+  | { type: 'pickedImages'; requestId: number; files: { name: string; data: Uint8Array }[] }
+  /** Result of adding, deleting or renaming textures in a .ytd. */
+  | { type: 'ytdEdited'; requestId: number; ok: boolean; cancelled?: boolean; error?: string; file?: string }
   | { type: 'fullTexture'; requestId: number; texture?: TextureData; error?: string }
   | { type: 'textureReplaced'; requestId: number; ok: boolean; cancelled?: boolean; error?: string; file?: string }
   | { type: 'saved'; requestId: number; path?: string; cancelled?: boolean; error?: string }
@@ -385,7 +435,7 @@ export type WebviewToHost =
   | { type: 'ready' }
   | { type: 'findTextures'; requestId: number; names: string[]; hints: string[]; maxSize?: number }
   | { type: 'loadArchetypes'; requestId: number; archetypes: ArchetypeRequest[]; maxTextureSize?: number }
-  | { type: 'openAsset'; name: string; ext: 'ydr' | 'ydd' | 'yft' | 'ytd' }
+  | { type: 'openAsset'; name: string; ext: 'ydr' | 'ydd' | 'yft' | 'ytd' | 'yld' }
   /** Loads every drawable in a model file found by base name (any of .ydd/.ydr/.yft). */
   | { type: 'loadDrawableFile'; requestId: number; name: string; maxTextureSize?: number }
   /** Loads every texture in a .ytd found by base name. */
@@ -393,6 +443,18 @@ export type WebviewToHost =
   | { type: 'openAsText' }
   /** Opens a file picker for a replacement image (PNG/JPG/DDS...). */
   | { type: 'pickImage'; requestId: number }
+  /** Opens a file picker for several images (to add to a .ytd). */
+  | { type: 'pickImages'; requestId: number }
+  /** Adds and/or deletes textures in the .ytd at `origin`, after confirmation. */
+  | {
+      type: 'editYtd';
+      requestId: number;
+      origin: string;
+      add?: { name: string; width: number; height: number; format: string; levels?: number; rgba?: Uint8Array; encoded?: Uint8Array }[];
+      remove?: string[];
+    }
+  /** Asks for a new name for a texture in the .ytd at `origin` and renames it. */
+  | { type: 'renameTexture'; requestId: number; origin: string; name: string }
   /** Full-resolution texture from the file at `origin`. */
   | { type: 'getFullTexture'; requestId: number; origin: string; name: string }
   /** Writes `rgba` (exactly the texture's size) into the file at `origin`, after confirmation. */

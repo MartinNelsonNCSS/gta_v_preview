@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.0
+
+- **Cloth physics preview (`.yld`)**: the simulated cloth mesh (pinned and free vertices, links) over its clothing model with the first texture variation, plus the body collision shapes it reacts to on a reference ped. Toggle each layer; the sidebar lists counts, pinned bones and collision shapes per bone.
+- `.ymt` clothing browser: drawables with cloth physics are marked, with an **Open cloth** button.
+- **Texture dictionary management**: **Add Textures…** and **Delete Textures…** in the `.ytd` toolbar, and **Rename…** and **Delete** in the texture viewer. New images get a name, format (or keep a `.dds` as-is), optional power-of-two resize and mipmaps; the `.ytd` is rebuilt with entries sorted by name hash, and a `.bak` of the original is kept.
+
 ## 0.10.0
 
 - **Animation preview (`.ycd`)**: play, pause, step and scrub clips, with speed, looping and root motion.

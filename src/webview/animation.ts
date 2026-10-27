@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import type { AnimationInfo, AnimTrack, BoneData, ClipInfo, DrawableData, LodLevel } from '../shared/model';
-import { PED_BONES } from '../formats/pedSkeleton';
+import { PED_BONES, PED_HELPER_BONES } from '../formats/pedSkeleton';
 import { buildDrawable, RenderOptions, TextureStore } from './scene';
 
 export const TRACK_NAMES: Record<number, string> = {
@@ -82,7 +82,8 @@ export class PedRig implements Rig {
   private readonly segments: { mesh: THREE.Mesh; node: THREE.Object3D; radius: number }[] = [];
   private readonly mover = new THREE.Group();
 
-  constructor() {
+  /** `ghost` draws a faint figure, as a reference for something shown on top of it. */
+  constructor(options: { ghost?: boolean } = {}) {
     this.object.add(this.mover);
     const cylinder = new THREE.CylinderGeometry(1, 0.7, 1, 10, 1);
     cylinder.translate(0, 0.5, 0); // from the parent joint (y = 0) to the child joint (y = 1)
@@ -90,7 +91,11 @@ export class PedRig implements Rig {
     const materials = new Map<number, THREE.Material>();
     const material = (color: number) => {
       let m = materials.get(color);
-      if (!m) materials.set(color, (m = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05 })));
+      if (!m) {
+        m = new THREE.MeshStandardMaterial({ color, roughness: 0.6, metalness: 0.05 });
+        if (options.ghost) Object.assign(m, { transparent: true, opacity: 0.25, depthWrite: false });
+        materials.set(color, m);
+      }
       return m;
     };
 
@@ -117,6 +122,16 @@ export class PedRig implements Rig {
       joint.scale.setScalar(finger ? 0.008 : radius * 0.9);
       node.add(joint);
     }
+    // Helper bones aren't drawn, but clothing physics attaches shapes to them.
+    for (const b of PED_HELPER_BONES) {
+      const node = new THREE.Object3D();
+      node.name = b.name;
+      node.position.fromArray(b.offset);
+      node.quaternion.fromArray(b.rotation).normalize();
+      node.userData.rest = { position: node.position.clone(), quaternion: node.quaternion.clone() };
+      this.nodes.set(b.tag, node);
+      this.nodes.get(b.parent)?.add(node);
+    }
     // Head and a hint of the toes' direction.
     const head = this.nodes.get(31086);
     if (head) {
@@ -130,6 +145,11 @@ export class PedRig implements Rig {
       head.add(nose);
     }
     this.updateSegments();
+  }
+
+  /** The node of a bone (including helper bones), for attaching things to it. */
+  bone(tag: number): THREE.Object3D | undefined {
+    return this.nodes.get(tag);
   }
 
   apply(pose: Pose, rootMotion: boolean): void {

@@ -4,7 +4,7 @@ import { testRoot, Uri } from './vscode-stub';
 
 const file = process.argv[2];
 testRoot.path ||= process.env.ROOT ?? file.slice(0, file.lastIndexOf('/'));
-const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt', ycd: 'ycd' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
+const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt', ycd: 'ycd', yld: 'yld' } as const)[file.split('.').pop()!.toLowerCase() as 'ydr'];
 let onMessage: (m: unknown) => void = () => {};
 const received: any[] = [];
 const panel = {

@@ -2,6 +2,7 @@ import type { TextureData } from '../shared/model';
 import { decodeBc7 } from './bc7';
 import { h } from './ui';
 import { editActions, EditTarget, pendingPreview } from './textureEditor';
+import { deleteTextures, renameTexture } from './ytdManage';
 
 const rgbaCache = new WeakMap<TextureData, Uint8Array | null>();
 
@@ -87,13 +88,39 @@ export function openLightbox(t: TextureData, source?: string, edit?: EditTarget)
   };
   const onKey = (e: KeyboardEvent) => e.key === 'Escape' && close();
   const actions = edit ? editActions(edit, (next) => ((shown = next), render())) : null;
+  // Textures in a .ytd can also be renamed or deleted (the dictionary reloads afterwards).
+  const origin = edit?.original.origin;
+  const manage =
+    origin && /\.ytd$/i.test(origin)
+      ? [
+          h('button', {
+            class: 'chip',
+            title: 'Rename this texture',
+            onclick: async () => {
+              const reply = await renameTexture(origin, edit!.original.name);
+              if (reply.ok) close();
+              else if (reply.error) info.append(h('div', { class: 'opt-bad' }, `Couldn't rename: ${reply.error}`));
+            },
+          }, 'Rename…'),
+          h('button', {
+            class: 'chip',
+            title: 'Delete this texture from the dictionary',
+            onclick: async () => {
+              const reply = await deleteTextures(origin, [edit!.original.name]);
+              if (reply.ok) close();
+              else if (reply.error) info.append(h('div', { class: 'opt-bad' }, `Couldn't delete: ${reply.error}`));
+            },
+          }, 'Delete'),
+          h('span', { class: 'sep' }),
+        ]
+      : [];
   const overlay = h(
     'div',
     { class: 'lightbox', onclick: (e: Event) => e.target === overlay && close() },
     h(
       'div',
       { class: 'lightbox-panel' },
-      h('div', { class: 'lightbox-header' }, info, h('div', { class: 'row' }, ...buttons, h('button', { class: 'chip', onclick: close, title: 'Close (Esc)' }, '✕'))),
+      h('div', { class: 'lightbox-header' }, info, h('div', { class: 'row' }, ...manage, ...buttons, h('button', { class: 'chip', onclick: close, title: 'Close (Esc)' }, '✕'))),
       actions,
       holder
     )

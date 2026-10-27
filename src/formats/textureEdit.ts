@@ -6,6 +6,10 @@ import { encodeMipChain, isBlockFormat, isEncodable, maxMipLevels, mipLevelsFor 
 import { packSegment } from './resourceBuilder';
 import { fragmentDrawables } from './yft';
 import { buildDds } from './dds';
+import { joaat } from './hash';
+import { textureNameProblem } from './textureNames';
+
+export { textureNameProblem };
 import type { TextureData } from '../shared/model';
 
 /**
@@ -127,25 +131,8 @@ export function replaceTexture(file: Uint8Array, kind: TextureFileKind, name: st
   const t = rawTexture(r, loc);
   const { width, height } = image;
   const target = image.format ?? t.formatName;
-  const code = formatCode(target);
-  if (code === undefined) throw new ResourceError(`Unknown texture format ${target}.`);
-  if (isBlockFormat(target) && (width % 4 || height % 4)) {
-    throw new ResourceError(`${target} textures need a width and height that are multiples of 4.`);
-  }
   const unchanged = target === t.formatName && width === t.width && height === t.height;
-  const levels = image.levels ?? (unchanged ? t.levels : isEncodable(target) ? mipLevelsFor(target, width, height) : 1);
-  if (levels < 1 || levels > maxMipLevels(width, height)) throw new ResourceError(`A ${width}×${height} texture can have 1–${maxMipLevels(width, height)} mip levels (got ${levels}).`);
-
-  let data: Uint8Array;
-  const expected = textureDataSize(code, width, height, levels)!;
-  if (image.encoded) {
-    if (image.encoded.length < expected) throw new ResourceError(`The supplied ${target} data is too short for ${width}×${height} with ${levels} mips.`);
-    data = image.encoded.subarray(0, expected);
-  } else {
-    if (!isEncodable(target)) throw new ResourceError(`Encoding ${target} isn't supported; choose another format, or replace with a ${target} .dds (${t.name}).`);
-    if (!image.rgba || image.rgba.length !== width * height * 4) throw new ResourceError('Image data does not match its size.');
-    data = encodeMipChain(target, image.rgba, width, height, levels);
-  }
+  const { levels, data } = encodeImage(t.name, { ...image, format: target, levels: image.levels ?? (unchanged ? t.levels : undefined) });
 
   if (unchanged && levels === t.levels) {
     r.bytes(t.dataPtr, t.size).set(data);
@@ -164,6 +151,31 @@ export function replaceTexture(file: Uint8Array, kind: TextureFileKind, name: st
     );
   }
   return rebuildYtd(file, r, new Map([[t.name.toLowerCase(), { width, height, levels, format: target, data }]]));
+}
+
+/**
+ * Validates an image for storing as a texture and returns its data in the
+ * target format (encoding RGBA when needed). Default mips: a full chain for
+ * encodable formats, otherwise one level.
+ */
+export function encodeImage(name: string, image: ReplacementImage & { format: string }): { levels: number; data: Uint8Array } {
+  const { width, height, format } = image;
+  const code = formatCode(format);
+  if (code === undefined) throw new ResourceError(`Unknown texture format ${format}.`);
+  if (!width || !height) throw new ResourceError(`Texture "${name}" has no size.`);
+  if (isBlockFormat(format) && (width % 4 || height % 4)) {
+    throw new ResourceError(`${format} textures need a width and height that are multiples of 4 ("${name}" is ${width}×${height}).`);
+  }
+  const levels = image.levels ?? (isEncodable(format) ? mipLevelsFor(format, width, height) : 1);
+  if (levels < 1 || levels > maxMipLevels(width, height)) throw new ResourceError(`A ${width}×${height} texture can have 1–${maxMipLevels(width, height)} mip levels (got ${levels}).`);
+  const expected = textureDataSize(code, width, height, levels)!;
+  if (image.encoded) {
+    if (image.encoded.length < expected) throw new ResourceError(`The supplied ${format} data is too short for ${width}×${height} with ${levels} mips.`);
+    return { levels, data: image.encoded.subarray(0, expected) };
+  }
+  if (!isEncodable(format)) throw new ResourceError(`Encoding ${format} isn't supported; choose another format, or use a ${format} .dds (${name}).`);
+  if (!image.rgba || image.rgba.length !== width * height * 4) throw new ResourceError('Image data does not match its size.');
+  return { levels, data: encodeMipChain(format, image.rgba, width, height, levels) };
 }
 
 /** Changed texture data for a .ytd rebuild. */
@@ -228,6 +240,40 @@ function withHeader(header: Uint8Array, compressed: Uint8Array): Uint8Array {
   return out;
 }
 
+/** One texture of a .ytd being written: its 0x90-byte structure (template) and data. */
+interface YtdEntry {
+  name: string;
+  struct: Uint8Array;
+  format: string;
+  width: number;
+  height: number;
+  levels: number;
+  data: Uint8Array;
+  /** Size/format fields must be rewritten (new or changed data). */
+  changed: boolean;
+  /** Name hash stored in the file; computed from the name when absent (new or renamed). */
+  hash?: number;
+}
+
+/** The textures of a .ytd as rebuild entries, in file order. */
+function ytdEntries(r: ResourceReader): YtdEntry[] {
+  const hashes = r.list(ROOT + 0x20);
+  return dictionaryTextures(r, ROOT).map((loc, i) => {
+    const t = rawTexture(r, loc);
+    return {
+      name: loc.name,
+      struct: r.bytes(loc.ptr, 0x90).slice(),
+      format: t.formatName,
+      width: t.width,
+      height: t.height,
+      levels: t.levels,
+      data: r.bytes(t.dataPtr, t.size).slice(),
+      changed: false,
+      hash: i < hashes.count ? r.u32(hashes.items + i * 4) : undefined,
+    };
+  });
+}
+
 /**
  * Rebuilds a .ytd from scratch with some textures' data replaced (keyed by
  * lower-case name). Other textures keep their exact bytes; structures are
@@ -235,24 +281,81 @@ function withHeader(header: Uint8Array, compressed: Uint8Array): Uint8Array {
  * page layout fits the new data, so memory use shrinks when textures do.
  */
 export function rebuildYtd(file: Uint8Array, r: ResourceReader, changes: Map<string, TextureChange>): Uint8Array {
-  const hashes = r.list(ROOT + 0x20);
-  const list = r.list(ROOT + 0x30);
-  const entries = r.ptrArray(list.items, list.count).map((ptr, i) => {
-    const loc = { ptr, name: r.string(r.ptr(ptr + 0x28)) ?? '' };
-    const t = rawTexture(r, loc);
-    const change = changes.get(loc.name.toLowerCase());
-    return {
-      name: loc.name,
-      hash: r.u32(hashes.items + i * 4),
-      struct: r.bytes(ptr, 0x90).slice(),
-      format: change ? change.format : t.formatName,
-      width: change ? change.width : t.width,
-      height: change ? change.height : t.height,
-      levels: change ? change.levels : t.levels,
-      data: change ? change.data : r.bytes(t.dataPtr, t.size).slice(),
-      replaced: !!change,
-    };
+  const entries = ytdEntries(r).map((e) => {
+    const change = changes.get(e.name.toLowerCase());
+    return change ? { ...e, ...change, changed: true } : e;
   });
+  return writeYtd(file, r, entries);
+}
+
+/** A texture to add to a .ytd. */
+export interface NewTexture extends TextureChange {
+  name: string;
+}
+
+export interface YtdEdit {
+  /** Renames, applied first. */
+  rename?: { from: string; to: string }[];
+  /** Textures to remove (after renaming). */
+  remove?: string[];
+  /** Textures to add; one with an existing name replaces it. */
+  add?: NewTexture[];
+}
+
+/**
+ * Adds, removes and renames textures in a .ytd. The dictionary is rebuilt with
+ * its entries sorted by name hash (as the game looks them up); new textures
+ * copy their structure from an existing texture in the file.
+ */
+export function editYtd(file: Uint8Array, edit: YtdEdit): Uint8Array {
+  const r = new ResourceReader(readRsc7(file));
+  let entries = ytdEntries(r);
+  const template = entries[0]?.struct;
+  const find = (name: string) => {
+    const i = entries.findIndex((e) => e.name.toLowerCase() === name.toLowerCase());
+    if (i < 0) throw new ResourceError(`Texture "${name}" was not found in this dictionary.`);
+    return i;
+  };
+  for (const { from, to } of edit.rename ?? []) {
+    const problem = textureNameProblem(to);
+    if (problem) throw new ResourceError(`Can't rename "${from}" to "${to}": ${problem}`);
+    const i = find(from);
+    if (from.toLowerCase() !== to.toLowerCase() && entries.some((e) => e.name.toLowerCase() === to.toLowerCase())) {
+      throw new ResourceError(`A texture named "${to}" already exists.`);
+    }
+    entries[i] = { ...entries[i], name: to, hash: undefined };
+  }
+  for (const name of edit.remove ?? []) entries.splice(find(name), 1);
+  for (const t of edit.add ?? []) {
+    const problem = textureNameProblem(t.name);
+    if (problem) throw new ResourceError(`Can't add "${t.name}": ${problem}`);
+    entries = entries.filter((e) => e.name.toLowerCase() !== t.name.toLowerCase());
+    entries.push({ name: t.name, struct: newTextureStruct(template), format: t.format, width: t.width, height: t.height, levels: t.levels, data: t.data, changed: true });
+  }
+  if (!entries.length) throw new ResourceError('A texture dictionary needs at least one texture.');
+  return writeYtd(file, r, entries);
+}
+
+/** A grcTexture structure for a new texture: a copy of an existing one, or defaults. */
+function newTextureStruct(template?: Uint8Array): Uint8Array {
+  const struct = template ? template.slice() : new Uint8Array(0x90);
+  const v = new DataView(struct.buffer);
+  if (!template) {
+    v.setUint16(0x30, 1, true); // reference count
+  }
+  v.setUint16(0x54, 1, true); // depth
+  v.setUint32(0x40, 0, true); // usage: unspecified
+  return struct;
+}
+
+/** Writes a complete .ytd: entries sorted by name hash, fresh page layout. */
+function writeYtd(file: Uint8Array, r: ResourceReader, unsorted: YtdEntry[]): Uint8Array {
+  const entries = unsorted.map((e) => ({ ...e, hash: e.hash ?? joaat(e.name) })).sort((a, b) => a.hash - b.hash);
+  for (let i = 1; i < entries.length; i++) {
+    if (entries[i].hash === entries[i - 1].hash) {
+      throw new ResourceError(`"${entries[i - 1].name}" and "${entries[i].name}" have the same name hash; rename one of them.`);
+    }
+  }
   const n = entries.length;
 
   // Graphics: one block per texture (all mips).
@@ -297,7 +400,7 @@ export function rebuildYtd(file: Uint8Array, r: ResourceReader, changes: Map<str
     setPtr(structOff(i) + 0x28, SYS + nameOff(i));
     system.set(nameBytes[i], nameOff(i));
     graphics.set(e.data, gfx.offsets[i]);
-    if (e.replaced) {
+    if (e.changed) {
       writeTextureHeader(struct, e.format, e.width, e.height, e.levels, GFX + gfx.offsets[i]);
     } else {
       setPtr(structOff(i) + 0x70, GFX + gfx.offsets[i]);

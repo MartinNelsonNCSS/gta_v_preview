@@ -49,7 +49,7 @@ export async function run(): Promise<void> {
   };
   /** First file with this extension in the workspace (the suite adapts to whatever assets it's given). */
   const sample = async (ext: string) => (await vscode.workspace.findFiles(`**/*.${ext}`, '**/node_modules/**', 1))[0];
-  for (const ext of ['ydr', 'ydd', 'yft', 'ytd', 'ytyp', 'ymap', 'ybn', 'ymt', 'ycd']) {
+  for (const ext of ['ydr', 'ydd', 'yft', 'ytd', 'ytyp', 'ymap', 'ybn', 'ymt', 'ycd', 'yld']) {
     const uri = await sample(ext);
     if (uri) await check(`custom editor opens .${ext}`, () => openTab(uri, `gtaPreview.${ext}`));
   }
