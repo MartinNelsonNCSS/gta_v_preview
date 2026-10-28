@@ -880,3 +880,185 @@ input:focus {
 .warn {
   color: var(--vscode-editorWarning-foreground, #cca700);
 }
+
+/* -- clothing pack editor ---------------------------------------------------- */
+
+.pack-body {
+  flex: 1;
+  min-height: 0;
+}
+.pack-list {
+  width: 300px;
+}
+.pack-details {
+  width: 320px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+.pack-name {
+  width: 160px;
+}
+.pack-group {
+  margin: 2px 0 6px 6px;
+}
+.pack-group-title {
+  margin: 4px 0 2px;
+  font-weight: 600;
+}
+.pack-row {
+  cursor: pointer;
+  user-select: none;
+}
+.pack-row.focused {
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+.pack-row.dragging {
+  opacity: 0.4;
+}
+.pack-row.drop-target {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.pack-index {
+  font-variant-numeric: tabular-nums;
+  font-family: var(--vscode-editor-font-family, monospace);
+}
+.pack-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pack-empty {
+  padding: 4px 8px;
+}
+.dot.warn-dot {
+  background: var(--vscode-editorWarning-foreground, #cca700);
+}
+.pack-details-title {
+  margin-bottom: 8px;
+}
+.pack-field {
+  display: grid;
+  grid-template-columns: 70px 1fr;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.pack-field-value {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  min-width: 0;
+}
+.pack-field-value input[type='text'],
+.pack-field-value select {
+  flex: 1;
+  min-width: 0;
+}
+.pack-section {
+  margin: 10px 0 4px;
+  font-weight: 600;
+}
+.pack-path {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+.pack-path > span:not(.spacer):not(.pack-letter) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.pack-letter {
+  width: 14px;
+  text-transform: uppercase;
+  color: var(--vscode-descriptionForeground);
+}
+.chip.mini {
+  padding: 1px 6px;
+}
+.pack-issues {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.pack-issue.error {
+  color: var(--bad);
+}
+.pack-issue.warning {
+  color: var(--vscode-editorWarning-foreground, #cca700);
+}
+.pack-issue.info {
+  color: var(--vscode-descriptionForeground);
+}
+.pack-danger {
+  margin-top: 14px;
+}
+.pack-help {
+  margin-top: 10px;
+  line-height: 1.5;
+}
+.pack-amount {
+  width: 60px;
+  margin-left: 6px;
+}
+.pack-flags {
+  margin: 6px 0;
+}
+.pack-flags > summary {
+  cursor: pointer;
+}
+.pack-flags .toggle.block {
+  padding-left: 12px;
+}
+input[type='number'] {
+  background: var(--vscode-input-background);
+  color: var(--vscode-input-foreground);
+  border: 1px solid var(--vscode-dropdown-border, var(--border));
+  border-radius: 2px;
+  padding: 2px 4px;
+  font: inherit;
+}
+.resolve-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.resolve-row select {
+  max-width: 160px;
+}
+.resolve-bulk {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.dup-group {
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 6px 8px;
+}
+.dup-title,
+.dup-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.outfit-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.outfit-legend {
+  position: absolute;
+  left: 10px;
+  top: 10px;
+  max-width: 60%;
+}

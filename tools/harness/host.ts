@@ -4,7 +4,8 @@
  */
 import { GtaPreviewProvider } from '../../src/host/previewProvider';
 import type { ViewKind, WebviewToHost } from '../../src/shared/model';
-import { ROOT, Uri } from './vscode-stub';
+import { ROOT, textDocuments, Uri } from './vscode-stub';
+import { PackEditorProvider } from '../../src/host/packEditor';
 import { summarizeResource } from '../../src/formats/scan';
 import { readRsc7SystemOnly } from '../../src/formats/rsc7';
 import { optimizeYtd } from '../../src/formats/optimize';
@@ -18,7 +19,9 @@ const optimize = params.get('optimize');
 const ext = file.split('.').pop()!.toLowerCase();
 const KINDS: Record<string, ViewKind> = { ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytyp: 'ytyp', ytd: 'ytd', ymap: 'ymap', ybn: 'ybn', ymt: 'ymt', ycd: 'ycd', yld: 'yld' };
 
-let toHost: (m: WebviewToHost) => void = () => {};
+/** Messages sent before the host side is listening are queued. */
+const queued: WebviewToHost[] = [];
+let toHost: (m: WebviewToHost) => void = (m) => queued.push(m);
 const panel = {
   webview: {
     options: {},
@@ -26,7 +29,11 @@ const panel = {
     cspSource: '',
     asWebviewUri: (u: unknown) => u,
     postMessage: async (m: unknown) => (window.postMessage(m, '*'), true),
-    onDidReceiveMessage: (cb: (m: WebviewToHost) => void) => ((toHost = cb), { dispose() {} }),
+    onDidReceiveMessage: (cb: (m: WebviewToHost) => void) => {
+      toHost = cb;
+      queued.splice(0).forEach((m) => cb(m));
+      return { dispose() {} };
+    },
   },
   onDidDispose: () => ({ dispose() {} }),
 };
@@ -71,6 +78,15 @@ if (optimize) {
       void panel.webview.postMessage({ type: 'converted', requestId: m.requestId, ok: res.ok, path: target });
     }
   });
+} else if (/\.clothpack\.json$/i.test(file)) {
+  // Custom text editor: a minimal TextDocument over the served file.
+  void (async () => {
+    const uri = Uri.file(`${ROOT}/${file}`);
+    const text = await (await fetch(`${ROOT}/${file.split('/').map(encodeURIComponent).join('/')}`)).text();
+    const doc = { uri, text, getText: () => doc.text, get lineCount() { return doc.text.split('\n').length; } };
+    textDocuments.set(uri.toString(), doc);
+    new PackEditorProvider({ extensionUri: Uri.file('/ext') } as never).resolveCustomTextEditor(doc as never, panel as never);
+  })();
 } else {
   const provider = new GtaPreviewProvider({ extensionUri: Uri.file('/ext') } as never, KINDS[ext]);
   provider.resolveCustomEditor(provider.openCustomDocument(Uri.file(`${ROOT}/${file}`) as never), panel as never);

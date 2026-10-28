@@ -1,11 +1,11 @@
 import { deflateSync } from 'fflate';
 import { ResourceReader } from './reader';
 import { readRsc7, ResourceError } from './rsc7';
-import { formatCode, readTexture, textureDataSize } from './textures';
+import { decodeToRgba, formatCode, readTexture, textureDataSize } from './textures';
 import { encodeMipChain, isBlockFormat, isEncodable, maxMipLevels, mipLevelsFor } from './bcEncode';
 import { packSegment } from './resourceBuilder';
 import { fragmentDrawables } from './yft';
-import { buildDds } from './dds';
+import { buildDds, parseDds } from './dds';
 import { joaat } from './hash';
 import { textureNameProblem } from './textureNames';
 
@@ -43,7 +43,7 @@ export function dictionaryTextures(r: ResourceReader, txd: number | undefined): 
 }
 
 /** Every texture with pixel data in a file of the given kind. */
-function locateTextures(r: ResourceReader, kind: TextureFileKind): TextureLocation[] {
+export function locateTextures(r: ResourceReader, kind: TextureFileKind): TextureLocation[] {
   switch (kind) {
     case 'ytd':
       return dictionaryTextures(r, ROOT);
@@ -420,4 +420,48 @@ function writeYtd(file: Uint8Array, r: ResourceReader, unsorted: YtdEntry[]): Ui
 /** Whether a texture of this format can be written back. */
 export function canReplaceFormat(format: string): boolean {
   return isEncodable(format) && formatCode(format) !== undefined;
+}
+
+/** Bilinear resize of RGBA pixels. */
+export function resizeRgba(src: Uint8Array, w: number, h: number, nw: number, nh: number): Uint8Array {
+  if (w === nw && h === nh) return src;
+  const out = new Uint8Array(nw * nh * 4);
+  for (let y = 0; y < nh; y++) {
+    const fy = Math.min(h - 1, Math.max(0, ((y + 0.5) * h) / nh - 0.5));
+    const y0 = Math.floor(fy);
+    const y1 = Math.min(h - 1, y0 + 1);
+    const ty = fy - y0;
+    for (let x = 0; x < nw; x++) {
+      const fx = Math.min(w - 1, Math.max(0, ((x + 0.5) * w) / nw - 0.5));
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(w - 1, x0 + 1);
+      const tx = fx - x0;
+      for (let c = 0; c < 4; c++) {
+        const a = src[(y0 * w + x0) * 4 + c] * (1 - tx) + src[(y0 * w + x1) * 4 + c] * tx;
+        const b = src[(y1 * w + x0) * 4 + c] * (1 - tx) + src[(y1 * w + x1) * 4 + c] * tx;
+        out[(y * nw + x) * 4 + c] = Math.round(a * (1 - ty) + b * ty);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Replaces a texture embedded in a model with a .dds image. A DDS of the same
+ * size and format is stored as-is (with its own mips); anything else is
+ * resized and re-encoded to the texture's own size and format, so it always fits.
+ */
+export function replaceEmbeddedFromDds(file: Uint8Array, kind: Exclude<TextureFileKind, 'ytd'>, name: string, ddsFile: Uint8Array): Uint8Array {
+  const r = new ResourceReader(readRsc7(file));
+  const t = rawTexture(r, findTexture(r, kind, name));
+  const dds = parseDds(ddsFile);
+  if (dds.format === t.formatName && dds.width === t.width && dds.height === t.height) {
+    const levels = Math.min(dds.levels, t.levels);
+    return replaceTexture(file, kind, name, { width: t.width, height: t.height, format: t.formatName, levels, encoded: dds.allLevels });
+  }
+  const code = formatCode(dds.format);
+  if (code === undefined) throw new ResourceError(`${dds.format} images can't be used here; save the replacement as DXT1/DXT5 or uncompressed.`);
+  const rgba = resizeRgba(decodeToRgba(code, dds.data, dds.width, dds.height), dds.width, dds.height, t.width, t.height);
+  const target = canReplaceFormat(t.formatName) ? t.formatName : 'DXT5';
+  return replaceTexture(file, kind, name, { width: t.width, height: t.height, format: target, levels: t.levels, rgba });
 }

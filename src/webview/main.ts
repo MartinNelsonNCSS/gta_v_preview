@@ -10,9 +10,11 @@ import { converterView } from './views/converterView';
 import { optimizerView } from './views/optimizerView';
 import { ycdView } from './views/ycdView';
 import { yldView } from './views/yldView';
+import { PackView } from './views/packView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
+let packView: PackView | undefined;
 
 function show(el: HTMLElement): void {
   app.replaceChildren(el);
@@ -47,6 +49,13 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'ycd':
       show(ycdView(m.file, m.ycd, m.targets, m.targetNotes));
+      break;
+    case 'pack':
+      if (!packView) {
+        packView = new PackView();
+        show(packView.el);
+      }
+      packView.update(m.file, m.pack, m.exists);
       break;
     case 'yld':
       show(yldView(m.file, m.yld, m.model, m.variation));

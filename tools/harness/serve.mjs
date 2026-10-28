@@ -1,7 +1,7 @@
 // Dev server for the webview harness: node tools/harness/serve.mjs <samples-dir> [port]
 import { createServer } from 'http';
-import { readFile, readdir, stat, writeFile } from 'fs/promises';
-import { join, extname, relative, resolve } from 'path';
+import { mkdir, readFile, readdir, rm, stat, writeFile } from 'fs/promises';
+import { dirname, join, extname, relative, resolve } from 'path';
 
 const root = resolve(process.argv[2] ?? '.');
 const port = Number(process.argv[3] ?? 5178);
@@ -28,7 +28,7 @@ createServer(async (req, res) => {
     if (url.pathname === '/') {
       const file = url.searchParams.get('file') ?? url.searchParams.get('convert') ?? url.searchParams.get('optimize');
       if (file) return res.writeHead(200, { 'content-type': 'text/html' }).end(page(file));
-      const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn|ymt)$/i.test(f));
+      const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn|ymt|ycd|yld)$|\.clothpack\.json$/i.test(f));
       return res.writeHead(200, { 'content-type': 'text/html' }).end(
         `<body style="font:13px sans-serif;background:#1e1e1e;color:#ccc">${files.map((f) => `<div><a style="color:#4fc3f7" href="/?file=${encodeURIComponent(f)}">${f}</a></div>`).join('')}</body>`
       );
@@ -40,10 +40,17 @@ createServer(async (req, res) => {
       if (!path.startsWith(root)) throw new Error('outside root');
       const chunks = [];
       for await (const c of req) chunks.push(c);
+      await mkdir(dirname(path), { recursive: true });
       await writeFile(path, Buffer.concat(chunks));
       return res.writeHead(204).end();
     }
+    if (path && req.method === 'DELETE') {
+      if (!path.startsWith(root + '/')) throw new Error('outside root');
+      await rm(path, { recursive: true, force: true });
+      return res.writeHead(204).end();
+    }
     else if (url.pathname.startsWith('/dist/') || url.pathname.startsWith('/out/')) path = join(repo, url.pathname);
+    else if (url.pathname.startsWith('/ext/media/')) path = join(repo, decodeURIComponent(url.pathname.slice(4)));
     if (!path || !(await stat(path)).isFile()) throw new Error('not found');
     if (req.method === 'HEAD') return res.writeHead(200).end();
     res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' }).end(await readFile(path));

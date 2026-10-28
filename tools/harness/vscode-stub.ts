@@ -18,6 +18,16 @@ export class Uri {
   get fsPath() { return this.path; }
 }
 export enum FileType { File = 1, Directory = 2 }
+export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
+export class Position { constructor(readonly line: number, readonly character: number) {} }
+export class Range { constructor(readonly startLine: number, readonly startCharacter: number, readonly endLine: number, readonly endCharacter: number) {} }
+export class WorkspaceEdit {
+  readonly replacements: { uri: Uri; text: string }[] = [];
+  replace(uri: Uri, _range: Range, text: string) { this.replacements.push({ uri, text }); }
+}
+/** Text documents opened by the harness (for custom text editors). */
+export const textDocuments = new Map<string, { uri: Uri; text: string; getText(): string; readonly lineCount: number }>();
+const docListeners: ((e: { document: unknown; contentChanges: unknown[] }) => void)[] = [];
 export class RelativePattern { constructor(readonly base: unknown, readonly pattern: string) {} }
 
 let listing: Promise<string[]> | undefined;
@@ -52,14 +62,44 @@ export const workspace = {
       if (!res.ok) throw new Error(`not found: ${u.path}`);
       return { mtime: 0 };
     },
-    readDirectory: async () => [],
+    readDirectory: async (u: Uri) => {
+      listing = undefined;
+      const rel = u.path.slice(ROOT.length + 1).replace(/\/$/, '');
+      const entries = new Map<string, FileType>();
+      for (const p of await list()) {
+        if (rel && !p.startsWith(rel + '/')) continue;
+        const rest = rel ? p.slice(rel.length + 1) : p;
+        const [head, ...tail] = rest.split('/');
+        entries.set(head, tail.length ? FileType.Directory : FileType.File);
+      }
+      return [...entries];
+    },
+    delete: async (u: Uri) => {
+      listing = undefined;
+      await fetch(url(u), { method: 'DELETE' });
+    },
   },
   getWorkspaceFolder: () => workspaceFolder,
+  workspaceFolders: [workspaceFolder],
+  onDidChangeTextDocument: (l: (e: { document: unknown; contentChanges: unknown[] }) => void) => (docListeners.push(l), noop),
+  applyEdit: async (edit: WorkspaceEdit) => {
+    for (const r of edit.replacements) {
+      const doc = textDocuments.get(r.uri.toString());
+      if (!doc) continue;
+      doc.text = r.text;
+      await fetch(url(r.uri), { method: 'PUT', body: r.text });
+      docListeners.forEach((l) => l({ document: doc, contentChanges: [{}] }));
+    }
+    return true;
+  },
   findFiles: async () => (await list()).map((p) => Uri.file(`${ROOT}/${p}`)),
   getConfiguration: () => ({ get: (_k: string, d: unknown) => d }),
   createFileSystemWatcher: () => ({ onDidChange: () => noop, onDidCreate: () => noop, dispose() {} }),
 };
 export const window = {
+  showInformationMessage: async (m: string) => (console.info('[info]', m), undefined),
+  withProgress: async <T>(_o: unknown, task: (p: { report(v: unknown): void }) => Promise<T>) => task({ report() {} }),
+  registerCustomEditorProvider2: () => noop,
   showWarningMessage: async (m: string, opts?: { modal?: boolean; detail?: string }, ...items: string[]) => {
     if (opts?.modal && items.length) return globalThis.confirm(`${m}\n\n${opts.detail ?? ''}`) ? items[0] : undefined;
     console.warn(m);
@@ -110,6 +150,10 @@ export const window = {
   });
   window.showOpenDialog = async () => uris;
 };
+/** Test hook: the next open dialog returns these served files (paths relative to the samples root). */
+(globalThis as unknown as { __harnessPickPaths?: (paths: string[]) => void }).__harnessPickPaths = (paths) => {
+  window.showOpenDialog = async () => paths.map((p) => Uri.file(`${ROOT}/${p}`));
+};
 /** Test hook: answer the next input box without a prompt. */
 (globalThis as unknown as { __harnessInput?: (value: string | undefined) => void }).__harnessInput = (value) => {
   window.showInputBox = async () => value;
@@ -125,5 +169,7 @@ export const window = {
 export const commands = {
   executeCommand: async (cmd: string, uri: Uri) => {
     if (cmd === 'vscode.openWith') location.search = `?file=${encodeURIComponent(uri.path.slice(ROOT.length + 1))}`;
+    else console.info('[command]', cmd, uri?.path ?? '');
   },
+  registerCommand: () => noop,
 };

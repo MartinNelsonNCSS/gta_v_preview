@@ -99,6 +99,42 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
+## Clothing packs (addon clothing for FiveM)
+
+Build addon clothing for the freemode peds (`mp_m_freemode_01` / `mp_f_freemode_01`) from VS Code, in the same
+resource layout as grzyClothTool:
+
+- **GTA V: New Clothing Pack…** (command palette or right-click a folder) creates a `<name>.clothpack.json` project
+  and opens it in the pack editor. **Import Clothing Resource as Pack…** turns an existing addon resource (its `.ymt`
+  files and stream folder) into a project that points at its files.
+- **+ Male / + Female** add models (`.ydd`). The slot (component or prop), gender, skin flag, texture variations
+  (`…_diff_000_a….ytd` next to the model) and cloth physics (`.yld`) are detected from file names; anything can be
+  changed afterwards. If a gender or slot can't be detected, or a model is already in the pack, a dialog asks before
+  adding (set them per file or in bulk; duplicates are left out by default).
+- The list groups drawables by gender and slot. **Drag rows** to reorder (the order is the drawable number);
+  **Ctrl/Cmd-click** or **Shift-click** to select several and change their gender or slot, set/clear *Has skin*, sort
+  them by name or remove them together. **Delete** removes the selection; edits are normal document edits, so
+  Undo/Redo work.
+- Selecting a drawable previews it in 3D with its texture variations, and shows its properties: name, gender,
+  slot, order, *Has skin*, audio, flags (helmet, bulky, hide in first person…), the model, a first-person
+  alternate model, the cloth file and the texture list (add, reorder, remove). Per slot:
+  - **Shoes:** *High heels* with the heel amount (written to the `.ymt` and the creature metadata).
+  - **Hats:** *Hair scale* (squashes the hair underneath), and for every prop a render flag (alpha, decal, cutout).
+  - **Masks:** *Hides hair*: hairs switch to their alternate model while the mask is worn.
+  - **Hair:** *Hair alternate under masks* (on by default), for base-game masks.
+  - **Reserved:** a placeholder keeps a drawable number taken (with no selection, use *Reserve* in the pack summary
+    to add one).
+- **Check** reports missing or encrypted files, high poly counts (over 20,000 triangles), textures over 2048 px,
+  uncompressed or mipmap-less textures, files over FiveM's 16 MiB warning, more than 26 textures (a–z), duplicate
+  models and slots that need splitting. Problems are marked in the list and shown on each drawable.
+- **Optimise textures…** opens the texture optimiser for the pack's `.ytd` files.
+- **Build** writes a ready-to-stream FiveM resource to the output folder: `fxmanifest.lua`, the shop meta per ped,
+  the ped variation `.ymt`, creature metadata (heels / hair scale), `pedalternativevariations` (hair and masks),
+  `first_person_alternates`, and every model/texture/cloth file renamed into `stream/[male|female]/<slot>/`. Slots
+  with more than 256 drawables are split into numbered collections (`name_01`, `name_02`…).
+- Projects are plain JSON, so they diff and merge well in git. **Import** reads existing resources back, including
+  audio, flags, heels, hair scale, render flags, first-person models and masks that hide hair.
+
 ## Workspace tools (GTA V sidebar)
 
 Open the **GTA V** view in the activity bar:
@@ -143,6 +179,7 @@ Open the **GTA V** view in the activity bar:
 - Animations: ped clips use a stick figure rather than a ped model; facial and helper bones aren't drawn. On models,
   rigid parts follow their bones but skinned meshes stay in their rest pose. Clips built from animation lists play
   the first animation; UV and other non-bone tracks are listed but not shown. Encrypted models can't be animated.
+- Clothing packs build FiveM resources only (not alt:V or singleplayer DLC packs).
 - Cloth: the preview shows the cloth at rest; it doesn't run the physics simulation. Collision shapes are placed on a
   standing reference pose, so their positions are approximate.
 - BC7 textures are decoded on the GPU, so they need a GPU/driver that supports `EXT_texture_compression_bptc`.

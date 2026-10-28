@@ -39,7 +39,7 @@ export const enum MetaType {
   IntFlags2 = 0x65,
 }
 
-interface EntryInfo {
+export interface EntryInfo {
   name: number;
   offset: number;
   type: number;
@@ -47,11 +47,21 @@ interface EntryInfo {
   refKey: number;
 }
 
-interface StructInfo {
+export interface StructInfo {
   name: number;
   key: number;
   size: number;
   entries: EntryInfo[];
+  /** The raw 0x20-byte descriptor and its 0x10-byte entries, for writing the schema back out. */
+  raw?: { info: Uint8Array; entries: Uint8Array };
+}
+
+export interface EnumInfo {
+  name: number;
+  key: number;
+  /** value → name hash */
+  values: Map<number, number>;
+  raw?: { info: Uint8Array; entries: Uint8Array };
 }
 
 interface Block {
@@ -65,11 +75,28 @@ export interface MetaObject {
   [field: string]: unknown;
 }
 
+/**
+ * The item description of an array entry: the ARRAYINFO entry its refIndex
+ * names, or (when a tool wrote a wrong index) the ARRAYINFO entry just before it.
+ */
+export function arrayItem(owner: StructInfo, entry: EntryInfo): EntryInfo | undefined {
+  const named = owner.entries[entry.refIndex];
+  if (named?.name === ARRAYINFO) return named;
+  const at = owner.entries.indexOf(entry);
+  for (let i = at - 1; i >= 0; i--) if (owner.entries[i].name === ARRAYINFO) return owner.entries[i];
+  return named;
+}
+
 export class MetaDocument {
   readonly structsByKey = new Map<number, StructInfo>();
   readonly structsByName = new Map<number, StructInfo>();
   readonly enumsByKey = new Map<number, Map<number, number>>();
+  /** Structure and enum descriptors in file order. */
+  readonly structs: StructInfo[] = [];
+  readonly enums: EnumInfo[] = [];
   readonly blocks: Block[] = [];
+  /** The 0x70-byte root header. */
+  readonly rootHeader: Uint8Array;
   readonly rootBlock: number;
   readonly name?: string;
 
@@ -82,6 +109,7 @@ export class MetaDocument {
     const enumCount = r.u16(ROOT + 0x4a);
     const blockCount = r.u16(ROOT + 0x4c);
     this.rootBlock = r.i32(ROOT + 0x1c) - 1;
+    this.rootHeader = r.bytes(ROOT, 0x70).slice();
 
     for (let i = 0; i < structCount; i++) {
       const p = structPtr + i * 0x20;
@@ -98,7 +126,14 @@ export class MetaDocument {
           refKey: r.u32(e + 0x0c),
         });
       }
-      const info: StructInfo = { name: r.u32(p), key: r.u32(p + 4), size: r.i32(p + 0x18), entries };
+      const info: StructInfo = {
+        name: r.u32(p),
+        key: r.u32(p + 4),
+        size: r.i32(p + 0x18),
+        entries,
+        raw: { info: r.bytes(p, 0x20).slice(), entries: n ? r.bytes(entriesPtr, n * 0x10).slice() : new Uint8Array() },
+      };
+      this.structs.push(info);
       this.structsByKey.set(info.key, info);
       this.structsByName.set(info.name, info);
     }
@@ -109,6 +144,7 @@ export class MetaDocument {
       const n = r.i32(p + 0x10);
       const values = new Map<number, number>();
       for (let j = 0; j < n; j++) values.set(r.i32(entriesPtr + j * 8 + 4), r.u32(entriesPtr + j * 8));
+      this.enums.push({ name: r.u32(p), key: r.u32(p + 4), values, raw: { info: r.bytes(p, 0x18).slice(), entries: n ? r.bytes(entriesPtr, n * 8).slice() : new Uint8Array() } });
       // Entries reference enums by name hash; index by key too for safety.
       this.enumsByKey.set(r.u32(p), values);
       this.enumsByKey.set(r.u32(p + 4), values);
@@ -217,14 +253,14 @@ export class MetaDocument {
       case MetaType.DataBlockPointer:
         return null;
       case MetaType.Array: {
-        const item = owner.entries[entry.refIndex];
+        const item = arrayItem(owner, entry);
         const target = this.resolve(r.u32(p));
         const count = r.u16(p + 8);
         if (!item || !target || count === 0) return [];
         return this.decodeArray(owner, item, target.ptr, count, depth);
       }
       case MetaType.ArrayOfBytes: {
-        const item = owner.entries[entry.refIndex];
+        const item = arrayItem(owner, entry);
         const count = entry.refKey & 0xffff;
         if (!item) return [];
         return this.decodeArray(owner, item, p, count, depth);

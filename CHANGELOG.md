@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.12.0
+
+- **Clothing pack builder** for FiveM addon clothing: a `.clothpack.json` project edited in a pack editor (drawables by gender and slot, drag to reorder, multi-select bulk changes, 3D preview with texture variations, per-drawable properties), **Check** (missing/encrypted files, poly counts, texture sizes and formats, memory, duplicates, texture and slot limits), **Optimise textures…** and **Build** to a ready-to-stream resource (fxmanifest, shop metas, hair-under-mask alternates, ped variation `.ymt`, renamed stream files, cloth). **Import Clothing Resource as Pack…** turns an existing addon resource into a project. Rebuilding an imported grzyClothTool resource reproduces it file for file.
+- Per-drawable settings in the pack editor: audio, flags, high heels (shoes), hair scale (hats), prop render flags, masks that hide hair, first-person alternate models and reserved placeholder drawables; written to the `.ymt`, creature metadata (RBF), `pedalternativevariations` and `first_person_alternates`, and read back on import.
+- Adding drawables: when a model's gender or slot can't be detected from its name, or it's already in the pack, a dialog lets you set them (one by one or in bulk) and skip duplicates.
+- Binary meta (`.ymt`) and RBF writing.
+- Fix: clothing using `ped_nopeddamagedecals` (and other ped shaders) rendered see-through; ped shaders are now opaque unless they are decal, alpha or cut-out variants.
+
 ## 0.11.0
 
 - **Cloth physics preview (`.yld`)**: the simulated cloth mesh (pinned and free vertices, links) over its clothing model with the first texture variation, plus the body collision shapes it reacts to on a reference ped. Toggle each layer; the sidebar lists counts, pinned bones and collision shapes per bone.

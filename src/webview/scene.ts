@@ -173,9 +173,18 @@ type Blend = 'opaque' | 'cutout' | 'alpha' | 'decal';
 
 function blendMode(shader: ShaderData | undefined): Blend {
   const n = shader?.name.toLowerCase() ?? '';
-  if (/decal|dirt|glue/.test(n)) return 'decal';
+  // Ped shaders: only ped_decal* draw as decals ("ped_nopeddamagedecals" is an ordinary opaque shader).
+  if (n.startsWith('ped')) {
+    if (n.startsWith('ped_decal')) return 'decal';
+    if (/alpha/.test(n)) return 'alpha';
+    if (/cutout|hair|fur/.test(n)) return 'cutout';
+    return 'opaque';
+  }
+  if (/decal|dirt|glue/.test(n) && !/no\w*decal/.test(n)) return 'decal';
   if (/glass|alpha|additive|water/.test(n)) return 'alpha';
-  if (/cutout|fence|hair|trees|grass|ped|cloth/.test(n)) return 'cutout';
+  // Only explicit cut-out shaders discard pixels. Ordinary ped/clothing shaders (ped, ped_wrinkle,
+  // ped_cloth, ...) are opaque: their diffuse alpha often holds leftover data, not transparency.
+  if (/cutout|fence|hair|fur|trees|grass/.test(n)) return 'cutout';
   switch (shader?.renderBucket) {
     case 1:
       return 'alpha';

@@ -57,3 +57,16 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.```
+
+## grzyClothTool (data)
+
+<https://github.com/grzybeek/grzyClothTool> — GNU General Public License v3.0.
+
+From grzyClothTool:
+
+- the base-game hair and mask lists used for hair alternates (`src/formats/maskHairAlternates.ts`, from
+  `Constants/PedAlternateVariationsConstants.cs`), and the audio id and drawable flag lists;
+- the placeholder model and texture used for reserved drawables (`media/reserved/`).
+
+The clothing pack build follows grzyClothTool's resource layout and file formats; the code here was written for this
+project.

@@ -1,13 +1,13 @@
 {
   "name": "gta-v-asset-preview",
   "displayName": "GTA V Asset Preview",
-  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn), ped clothing (.ymt), animations (.ycd) and cloth physics (.yld). Includes a FiveM resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
+  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn), ped clothing (.ymt), animations (.ycd) and cloth physics (.yld). Build FiveM addon clothing packs, plus a resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#10141a",
     "theme": "dark"
   },
-  "version": "0.11.0",
+  "version": "0.12.0",
   "publisher": "ncss-ltd",
   "license": "GPL-3.0-only",
   "repository": {
@@ -143,6 +143,16 @@
         "priority": "default"
       },
       {
+        "viewType": "gtaPreview.clothPack",
+        "displayName": "GTA V Clothing Pack",
+        "selector": [
+          {
+            "filenamePattern": "*.clothpack.json"
+          }
+        ],
+        "priority": "default"
+      },
+      {
         "viewType": "gtaPreview.ymt",
         "displayName": "GTA V Meta Preview",
         "selector": [
@@ -187,6 +197,16 @@
     },
     "commands": [
       {
+        "command": "gtaPreview.newClothPack",
+        "title": "New Clothing Pack\u2026",
+        "category": "GTA V"
+      },
+      {
+        "command": "gtaPreview.importClothPack",
+        "title": "Import Clothing Resource as Pack\u2026",
+        "category": "GTA V"
+      },
+      {
         "command": "gtaPreview.convertToDds",
         "title": "Convert to DDS\u2026",
         "category": "GTA V"
@@ -224,6 +244,16 @@
     ],
     "menus": {
       "explorer/context": [
+        {
+          "command": "gtaPreview.newClothPack",
+          "when": "explorerResourceIsFolder",
+          "group": "7_modification@88"
+        },
+        {
+          "command": "gtaPreview.importClothPack",
+          "when": "explorerResourceIsFolder",
+          "group": "7_modification@89"
+        },
         {
           "command": "gtaPreview.convertToDds",
           "when": "resourceExtname =~ /^\\.(png|jpe?g|webp|bmp|gif|dds)$/i",

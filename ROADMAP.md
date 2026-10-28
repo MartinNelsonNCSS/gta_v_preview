@@ -2,6 +2,12 @@
 
 Ideas for making FiveM / GTA V modding workflows faster, roughly in priority order.
 
+## Done (0.12.0)
+
+### Clothing pack builder
+Project-based addon clothing for FiveM: add, order and configure drawables, check them, optimise textures and build
+the resource (in grzyClothTool's layout); import existing resources.
+
 ## Done (0.11.0)
 
 ### Cloth physics preview
@@ -42,7 +48,7 @@ this archetype?", "where is this texture defined?". **Find Asset…** searches e
 ## Later
 
 - **CodeWalker / Sollumz XML** export and import for round-tripping with other tools.
-- **Clothing pack editing** — add drawables and texture variations to a `.ymt` (overlaps with grzyClothTool).
+- **Clothing packs, remaining** — alt:V and singleplayer DLC output; optimising textures during the build.
 - **Animations on ped models** — skin a ped's clothing `.ydd` to the animated skeleton instead of a stick figure;
   facial animation; UV-scroll tracks.
 - **Cloth simulation** — run the cloth physics live (gravity, collisions) on the `.yld` preview.

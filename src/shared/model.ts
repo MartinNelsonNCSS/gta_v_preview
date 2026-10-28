@@ -428,8 +428,37 @@ export type HostToWebview =
       archetypes: Record<string, ArchetypeData | null>;
       done: boolean;
     }
+  /** Clothing pack editor: the project and which referenced files exist. */
+  | { type: 'pack'; file: string; pack: import('../formats/clothPack').ClothPack; exists: Record<string, boolean> }
+  | { type: 'packChecks'; requestId: number; issues: PackIssue[] }
+  | { type: 'packBuilt'; requestId: number; ok: boolean; cancelled?: boolean; error?: string; output?: string; files?: number; warnings?: string[] }
+  | { type: 'packPicked'; requestId: number; paths: string[] }
+  /** Models picked to add, with what was detected; the webview resolves gaps and duplicates. */
+  | { type: 'packCandidates'; requestId: number; candidates: PackCandidate[] }
+  /** Groups of drawables whose model or texture files are identical. */
+  | { type: 'packDuplicates'; requestId: number; groups: { kind: 'model' | 'texture'; ids: string[]; file: string }[] }
   | { type: 'error'; message: string }
   | { type: 'status'; message: string };
+
+/** A model picked for adding to a clothing pack. */
+export interface PackCandidate {
+  model: string;
+  gender?: import('../formats/clothPack').Gender;
+  kind?: import('../formats/clothPack').DrawableKind;
+  slot?: string;
+  hasSkin?: boolean;
+  textures: string[];
+  cloth?: string;
+  /** Id of an existing drawable with the same model file or identical contents. */
+  duplicateOf?: string;
+}
+
+/** A problem found by a clothing pack check; `id` is the drawable it concerns. */
+export interface PackIssue {
+  id?: string;
+  severity: 'error' | 'warning' | 'info';
+  message: string;
+}
 
 export type WebviewToHost =
   | { type: 'ready' }
@@ -477,5 +506,20 @@ export type WebviewToHost =
   | { type: 'saveFile'; requestId: number; suggestedName: string; data: Uint8Array; filterName: string; extensions: string[] }
   /** Writes a converted .dds next to its source image (asking before replacing unless `overwrite`). */
   | { type: 'writeConverted'; requestId: number; sourceUri: string; data: Uint8Array; overwrite: boolean; format: string }
+  /** Clothing pack editor: replaces the project with an edited one. */
+  | { type: 'packEdit'; pack: import('../formats/clothPack').ClothPack }
+  /** Picks models to add as drawables (slot/gender guessed from names; `gender` when it can't be). */
+  | { type: 'packAddDrawables'; requestId: number; gender: import('../formats/clothPack').Gender }
+  /** Picks files and replies with their project-relative paths. */
+  | { type: 'packPickFiles'; requestId: number; purpose: 'textures' | 'cloth' | 'model' }
+  | { type: 'packLoadModel'; requestId: number; path: string; maxTextureSize?: number }
+  | { type: 'packLoadTexture'; requestId: number; path: string; maxSize?: number }
+  | { type: 'packCheck'; requestId: number }
+  | { type: 'packFindDuplicates'; requestId: number }
+  /** Saves generated data (e.g. a converted replacement image) next to the project; replies packPicked. */
+  | { type: 'packSaveAsset'; requestId: number; name: string; data: Uint8Array }
+  | { type: 'packBuild'; requestId: number }
+  | { type: 'packOptimize' }
+  | { type: 'packReveal' }
   /** Applies optimisation plans (see formats/optimize.ts) to .ytd files. */
   | { type: 'applyOptimization'; files: { uri: string; plans: import('../formats/optimize').TexturePlan[] }[] };

@@ -1,9 +1,9 @@
 import { ResourceReader } from './reader';
 import { readRsc7, readHeader, ResourceError } from './rsc7';
-import { decodeToRgba, formatCode, textureDataSize } from './textures';
+import { decodeToRgba, formatCode, readTextureInfo, textureDataSize } from './textures';
 import { downsample, EncodableFormat, encodeMipChain, isEncodable, mipLevelsFor } from './bcEncode';
 import { packSegment } from './resourceBuilder';
-import { dictionaryTextures, rawTexture, rebuildYtd, TextureChange } from './textureEdit';
+import { dictionaryTextures, locateTextures, rawTexture, rebuildYtd, replaceTexture, TextureChange, TextureFileKind, TextureLocation } from './textureEdit';
 import type { TextureInfo } from './scan';
 
 /**
@@ -109,34 +109,7 @@ export function optimizeYtd(file: Uint8Array, plans: TexturePlan[]): OptimizeRes
       continue;
     }
     try {
-      const t = rawTexture(r, loc);
-      const raw = r.bytes(t.dataPtr, t.size);
-      // How many top mips are dropped to reach the planned size.
-      let k = 0;
-      while ((t.width >> k) > plan.width && k < 16) k++;
-      if (plan.format === t.formatName && plan.levels <= t.levels - k && t.width >> k === plan.width && t.height >> k === plan.height) {
-        // Lossless: reuse the existing lower mips.
-        const skip = textureDataSize(t.format, t.width, t.height, k)!;
-        const keep = textureDataSize(t.format, plan.width, plan.height, plan.levels)!;
-        changes.set(loc.name.toLowerCase(), { width: plan.width, height: plan.height, levels: plan.levels, format: t.formatName, data: raw.slice(skip, skip + keep) });
-        continue;
-      }
-      // Re-encode from the best existing level at or above the target size.
-      let level = Math.max(0, Math.min(k, t.levels - 1));
-      while (level > 0 && (t.width >> level < plan.width || t.height >> level < plan.height)) level--;
-      const offset = textureDataSize(t.format, t.width, t.height, level)!;
-      let w = Math.max(1, t.width >> level);
-      let hgt = Math.max(1, t.height >> level);
-      let rgba = decodeToRgba(t.format, raw.subarray(offset, offset + textureDataSize(t.format, w, hgt, 1)!), w, hgt);
-      while (w > plan.width || hgt > plan.height) {
-        const half = downsample(rgba, w, hgt);
-        rgba = half.data;
-        w = half.w;
-        hgt = half.h;
-      }
-      let format = plan.format as EncodableFormat;
-      if (UNCOMPRESSED_32.has(t.formatName) && format === 'DXT5' && !hasAlpha(rgba)) format = 'DXT1';
-      changes.set(loc.name.toLowerCase(), { width: w, height: hgt, levels: plan.levels, format, data: encodeMipChain(format, rgba, w, hgt, plan.levels) });
+      changes.set(loc.name.toLowerCase(), plannedChange(r, loc, plan));
     } catch (err) {
       skipped.push({ name: plan.name, reason: (err as Error).message });
     }
@@ -151,6 +124,76 @@ export function optimizeYtd(file: Uint8Array, plans: TexturePlan[]): OptimizeRes
     changed: [...changes.keys()],
     skipped,
   };
+}
+
+/** Optimises a whole .ytd with the given options; returns the input unchanged when nothing needs doing. */
+export function optimizeYtdWith(file: Uint8Array, options: OptimizeOptions): { file: Uint8Array; changed: string[]; skipped: { name: string; reason: string }[] } {
+  const r = new ResourceReader(readRsc7(file));
+  const plans = dictionaryTextures(r, 0x50000000)
+    .map((loc) => planTexture(readTextureInfo(r, loc.ptr), options))
+    .filter((p): p is TexturePlan => !!p);
+  const usable = plans.filter((p) => !p.blocked);
+  if (!usable.length) return { file, changed: [], skipped: plans.filter((p) => p.blocked).map((p) => ({ name: p.name, reason: p.blocked! })) };
+  const result = optimizeYtd(file, plans);
+  return { file: result.file, changed: result.changed, skipped: result.skipped };
+}
+
+/** The new data for a texture under a plan: reuses existing lower mips when possible, else re-encodes. */
+function plannedChange(r: ResourceReader, loc: TextureLocation, plan: TexturePlan): TextureChange {
+  const t = rawTexture(r, loc);
+  const raw = r.bytes(t.dataPtr, t.size);
+  // How many top mips are dropped to reach the planned size.
+  let k = 0;
+  while ((t.width >> k) > plan.width && k < 16) k++;
+  if (plan.format === t.formatName && plan.levels <= t.levels - k && t.width >> k === plan.width && t.height >> k === plan.height) {
+    // Lossless: reuse the existing lower mips.
+    const skip = textureDataSize(t.format, t.width, t.height, k)!;
+    const keep = textureDataSize(t.format, plan.width, plan.height, plan.levels)!;
+    return { width: plan.width, height: plan.height, levels: plan.levels, format: t.formatName, data: raw.slice(skip, skip + keep) };
+  }
+  // Re-encode from the best existing level at or above the target size.
+  let level = Math.max(0, Math.min(k, t.levels - 1));
+  while (level > 0 && (t.width >> level < plan.width || t.height >> level < plan.height)) level--;
+  const offset = textureDataSize(t.format, t.width, t.height, level)!;
+  let w = Math.max(1, t.width >> level);
+  let hgt = Math.max(1, t.height >> level);
+  let rgba = decodeToRgba(t.format, raw.subarray(offset, offset + textureDataSize(t.format, w, hgt, 1)!), w, hgt);
+  while (w > plan.width || hgt > plan.height) {
+    const half = downsample(rgba, w, hgt);
+    rgba = half.data;
+    w = half.w;
+    hgt = half.h;
+  }
+  let format = plan.format as EncodableFormat;
+  if (UNCOMPRESSED_32.has(t.formatName) && format === 'DXT5' && !hasAlpha(rgba)) format = 'DXT1';
+  return { width: w, height: hgt, levels: plan.levels, format, data: encodeMipChain(format, rgba, w, hgt, plan.levels) };
+}
+
+/**
+ * Optimises the textures embedded in a model (.ydr/.ydd/.yft). Optimised
+ * textures only shrink, so each is written into its existing space.
+ */
+export function optimizeEmbedded(file: Uint8Array, kind: Exclude<TextureFileKind, 'ytd'>, options: OptimizeOptions): { file: Uint8Array; changed: string[]; skipped: { name: string; reason: string }[] } {
+  const r = new ResourceReader(readRsc7(file));
+  const work = locateTextures(r, kind).map((loc) => ({ loc, plan: planTexture(readTextureInfo(r, loc.ptr), options) }));
+  let out = file;
+  const changed: string[] = [];
+  const skipped: { name: string; reason: string }[] = [];
+  for (const { loc, plan } of work) {
+    if (!plan) continue;
+    if (plan.blocked) {
+      skipped.push({ name: loc.name, reason: plan.blocked });
+      continue;
+    }
+    try {
+      const c = plannedChange(r, loc, plan);
+      out = replaceTexture(out, kind, loc.name, { width: c.width, height: c.height, format: c.format, levels: c.levels, encoded: c.data });
+      changed.push(loc.name);
+    } catch (err) {
+      skipped.push({ name: loc.name, reason: (err as Error).message });
+    }
+  }
+  return { file: out, changed, skipped };
 }
 
 function hasAlpha(rgba: Uint8Array): boolean {

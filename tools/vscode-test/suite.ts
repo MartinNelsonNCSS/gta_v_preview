@@ -23,7 +23,7 @@ export async function run(): Promise<void> {
   await check('commands registered', async () => {
     const all = await vscode.commands.getCommands(true);
     const ours = all.filter((c) => c.startsWith('gtaPreview.'));
-    for (const c of ['gtaPreview.checkResources', 'gtaPreview.optimizeTextures', 'gtaPreview.findAsset', 'gtaPreview.findUsages', 'gtaPreview.convertToDds', 'gtaPreview.refreshAssets']) {
+    for (const c of ['gtaPreview.newClothPack', 'gtaPreview.importClothPack', 'gtaPreview.checkResources', 'gtaPreview.optimizeTextures', 'gtaPreview.findAsset', 'gtaPreview.findUsages', 'gtaPreview.convertToDds', 'gtaPreview.refreshAssets']) {
       if (!ours.includes(c)) throw new Error(`missing ${c}`);
     }
     return ours.join(', ');
@@ -53,6 +53,20 @@ export async function run(): Promise<void> {
     const uri = await sample(ext);
     if (uri) await check(`custom editor opens .${ext}`, () => openTab(uri, `gtaPreview.${ext}`));
   }
+  await check('import clothing resource as pack', async () => {
+    const ymt = (await vscode.workspace.findFiles('**/stream/mp_*_freemode_01_*.ymt', '**/node_modules/**', 50)).find((u) => !/rebuilt|build\//.test(u.path));
+    if (!ymt) return 'skipped (no addon clothing resource in the workspace)';
+    const resource = vscode.Uri.joinPath(ymt, '..', '..');
+    await vscode.commands.executeCommand('gtaPreview.importClothPack', resource);
+    await sleep(2000);
+    const packs = await vscode.workspace.findFiles('**/*.clothpack.json');
+    if (!packs.length) throw new Error('no .clothpack.json created');
+    const pack = JSON.parse(new TextDecoder().decode(await vscode.workspace.fs.readFile(packs[0])));
+    const tab = vscode.window.tabGroups.activeTabGroup.activeTab;
+    const input = tab?.input as { viewType?: string } | undefined;
+    if (!input?.viewType?.endsWith('gtaPreview.clothPack')) throw new Error(`active tab is ${tab?.label}`);
+    return `${packs[0].path.split('/').pop()}: ${pack.drawables.length} drawables, opened in ${tab!.label}`;
+  });
   await check('Convert to DDS panel', async () => {
     const image = (await sample('png')) ?? (await sample('jpg'));
     if (!image) return 'skipped (no image in the workspace)';
