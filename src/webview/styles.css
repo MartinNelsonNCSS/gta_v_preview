@@ -1062,3 +1062,52 @@ input[type='number'] {
   top: 10px;
   max-width: 60%;
 }
+.pack-single {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.pack-single[hidden],
+.outfit-preview[hidden] {
+  display: none;
+}
+.pack-list-head {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  position: sticky;
+  top: 0;
+  background: var(--vscode-editor-background);
+  z-index: 1;
+  padding-top: 2px;
+}
+.pack-filter {
+  flex: 1;
+  min-width: 0 !important;
+}
+.pack-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 6px;
+  border-radius: 8px;
+  font-size: 11px;
+  background: var(--vscode-badge-background, rgba(128, 128, 128, 0.25));
+  color: var(--vscode-badge-foreground, inherit);
+  white-space: nowrap;
+}
+.pack-tag-x {
+  border: none;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 0 0 2px;
+  font: inherit;
+}
+.pack-tag-input {
+  width: 100px;
+}
+.pack-indent {
+  padding-left: 14px;
+}

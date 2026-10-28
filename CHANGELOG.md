@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.13.0
+
+Clothing pack editor:
+
+- **Outfit preview**: select several drawables (Ctrl/Cmd-click) to see them together on the ped, with hats and glasses placed on the head. Optional body models per gender are shown under the clothes. High heels show the lowered floor the heel must reach; hats with hair scale squash the hair (approximate).
+- **Optimise while building**: cap texture sizes, add mipmaps and compress, applied to the built copies only (your files are untouched); optionally textures inside models too. Per drawable *Don't optimise when building*.
+- **Embedded texture replacements**: replace a model's own textures (normal/spec maps…) with an image at build time.
+- **Groups and tags**: organise drawables in groups and tag them; list by slot or by group, and filter by name, tag or group.
+- **Duplicates…**: find identical models (and shared texture files), jump to them, and remove duplicates one by one or all at once.
+- **Configurable split size**: drawables per slot before the pack is split into another collection (1–256).
+
 ## 0.12.0
 
 - **Clothing pack builder** for FiveM addon clothing: a `.clothpack.json` project edited in a pack editor (drawables by gender and slot, drag to reorder, multi-select bulk changes, 3D preview with texture variations, per-drawable properties), **Check** (missing/encrypted files, poly counts, texture sizes and formats, memory, duplicates, texture and slot limits), **Optimise textures…** and **Build** to a ready-to-stream resource (fxmanifest, shop metas, hair-under-mask alternates, ped variation `.ymt`, renamed stream files, cloth). **Import Clothing Resource as Pack…** turns an existing addon resource into a project. Rebuilding an imported grzyClothTool resource reproduces it file for file.

@@ -2,6 +2,11 @@
 
 Ideas for making FiveM / GTA V modding workflows faster, roughly in priority order.
 
+## Done (0.13.0)
+
+Clothing packs: outfit preview, build-time texture optimisation and embedded replacements, groups and tags, duplicate
+inspector, configurable split size.
+
 ## Done (0.12.0)
 
 ### Clothing pack builder
@@ -48,7 +53,8 @@ this archetype?", "where is this texture defined?". **Find Asset…** searches e
 ## Later
 
 - **CodeWalker / Sollumz XML** export and import for round-tripping with other tools.
-- **Clothing packs, remaining** — alt:V and singleplayer DLC output; optimising textures during the build.
+- **Clothing packs, remaining** — alt:V and singleplayer DLC output; shrinking a model's streaming memory when its
+  embedded textures are optimised (needs a full model re-save); a skinned ped body for exact hair scale.
 - **Animations on ped models** — skin a ped's clothing `.ydd` to the animated skeleton instead of a stick figure;
   facial animation; UV-scroll tracks.
 - **Cloth simulation** — run the cloth physics live (gravity, collisions) on the `.yld` preview.

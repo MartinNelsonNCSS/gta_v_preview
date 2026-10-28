@@ -124,6 +124,17 @@ resource layout as grzyClothTool:
   - **Hair:** *Hair alternate under masks* (on by default), for base-game masks.
   - **Reserved:** a placeholder keeps a drawable number taken (with no selection, use *Reserve* in the pack summary
     to add one).
+- **Outfit preview**: select several drawables (Ctrl/Cmd-click) to see them together on the ped; hats, glasses and
+  other head props sit on the head (approximate placement). Add optional **body** models per gender in the pack summary
+  (*Preview body*, e.g. base freemode head/torso/legs exported as `.ydd` + `.ytd`) to dress them. Shoes with high heels
+  show an orange floor where the heel must reach (amount ÷ 10 m below the ground, as in grzyClothTool); hats with
+  hair scale squash the hair underneath (approximate).
+- **Groups and tags**: give drawables a group and tags; the list can be grouped *By slot* or *By group*, and the filter
+  box matches names, tags and groups.
+- **Duplicates…** lists identical models in the same slot (and texture files shared between drawables) with *Show*,
+  *Remove*, *Keep first, remove others* and *Remove all duplicate models*.
+- **Embedded textures**: a selected drawable lists the textures inside its model; *Replace…* swaps one for an image at
+  build time (the replacement is saved as a `.dds` in `<pack>_assets/`).
 - **Check** reports missing or encrypted files, high poly counts (over 20,000 triangles), textures over 2048 px,
   uncompressed or mipmap-less textures, files over FiveM's 16 MiB warning, more than 26 textures (a–z), duplicate
   models and slots that need splitting. Problems are marked in the list and shown on each drawable.
@@ -131,7 +142,10 @@ resource layout as grzyClothTool:
 - **Build** writes a ready-to-stream FiveM resource to the output folder: `fxmanifest.lua`, the shop meta per ped,
   the ped variation `.ymt`, creature metadata (heels / hair scale), `pedalternativevariations` (hair and masks),
   `first_person_alternates`, and every model/texture/cloth file renamed into `stream/[male|female]/<slot>/`. Slots
-  with more than 256 drawables are split into numbered collections (`name_01`, `name_02`…).
+  with more drawables than the *Split at* size (default 256) are split into numbered collections (`name_01`, `name_02`…).
+  With *Optimise textures while building* on, copies of the textures are resized, given mipmaps and compressed as they
+  are written (your source files are not changed); *Also textures inside models* does the same for embedded textures,
+  which makes the model file smaller but doesn't reduce its streaming memory (they're rewritten in place).
 - Projects are plain JSON, so they diff and merge well in git. **Import** reads existing resources back, including
   audio, flags, heels, hair scale, render flags, first-person models and masks that hide hair.
 

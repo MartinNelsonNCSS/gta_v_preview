@@ -139,8 +139,9 @@ export function replaceTexture(file: Uint8Array, kind: TextureFileKind, name: st
     return repack(file, res);
   }
   if (data.length <= t.size) {
-    // Fits in the texture's existing data block: write in place, leaving the rest unused.
+    // Fits in the texture's existing data block: write in place and clear the unused rest (it compresses away).
     r.bytes(t.dataPtr, data.length).set(data);
+    r.bytes(t.dataPtr + data.length, t.size - data.length).fill(0);
     writeTextureHeader(r.bytes(loc.ptr, 0x90), target, width, height, levels, t.dataPtr);
     return repack(file, res);
   }

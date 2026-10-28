@@ -13,12 +13,16 @@ import {
   packNameProblem,
   PROP_SLOTS,
   slotLabel,
+  slotLimit,
 } from '../../formats/clothPack';
 import type { PackIssue, TextureData } from '../../shared/model';
 import { openLightbox, textureCanvas, textureDescription } from '../textureCanvas';
-import { h, hostRequest, newRequestId, vscode } from '../ui';
+import { h, hostRequest, newRequestId, pref, setPref, vscode } from '../ui';
 import { ModelPanel } from './modelPanel';
-import { resolveImport } from '../packDialogs';
+import { duplicateInspector, resolveImport } from '../packDialogs';
+import { OutfitItem, OutfitPreview } from '../outfitPreview';
+import { buildDds } from '../../formats/dds';
+import { canvasToRgba, decodeImage } from '../imageUtils';
 
 const PREVIEW_TEXTURE_SIZE = 512;
 const GENDERS: Gender[] = ['male', 'female'];
@@ -48,16 +52,42 @@ export class PackView {
   private checked = false;
   private readonly toolbar = h('div', { class: 'toolbar' });
   private readonly list = h('div', { class: 'slot-list pack-list' });
+  private readonly listBody = h('div');
+  private filter = '';
+  private groupBy: 'slot' | 'group' = pref('packGroupBy', 'slot');
   private readonly details = h('div', { class: 'sidebar pack-details' });
   private readonly panel = new ModelPanel({ sidebar: false, searchTextures: false });
+  private readonly outfit = new OutfitPreview();
+  private readonly single = h('div', { class: 'pack-single' });
   private readonly strip = h('div', { class: 'variation-strip' });
   private readonly title = h('div', { class: 'variation-title' });
   private readonly status = h('span', { class: 'muted edit-status' });
   private shownModel?: string;
+  /** Embedded textures of the last previewed model. */
+  private embeddedInfo?: { id: string; textures: TextureData[] };
   private token = 0;
   private dragging?: string;
 
   constructor() {
+    const search = h('input', { type: 'search', placeholder: 'Filter by name, tag or group…', class: 'pack-filter' });
+    search.oninput = () => {
+      this.filter = search.value.trim().toLowerCase();
+      this.renderList();
+    };
+    const groupBy = h(
+      'select',
+      { title: 'Group the list by slot or by your own groups' },
+      h('option', { value: 'slot', selected: this.groupBy === 'slot' }, 'By slot'),
+      h('option', { value: 'group', selected: this.groupBy === 'group' }, 'By group')
+    );
+    groupBy.onchange = () => {
+      this.groupBy = groupBy.value as 'slot' | 'group';
+      setPref('packGroupBy', this.groupBy);
+      this.renderList();
+    };
+    this.list.append(h('div', { class: 'pack-list-head' }, search, groupBy), this.listBody);
+    this.single.append(this.panel.el, h('div', { class: 'variation-panel' }, this.title, this.strip));
+    this.outfit.el.hidden = true;
     this.el = h(
       'div',
       { class: 'ytyp-view pack-view' },
@@ -66,7 +96,7 @@ export class PackView {
         'div',
         { class: 'slot-browser pack-body' },
         this.list,
-        h('div', { class: 'slot-preview' }, this.panel.el, h('div', { class: 'variation-panel' }, this.title, this.strip)),
+        h('div', { class: 'slot-preview' }, this.single, this.outfit.el),
         this.details
       )
     );
@@ -162,10 +192,18 @@ export class PackView {
     this.renderList();
     this.renderDetails();
     const focus = this.pack.drawables.find((d) => d.id === this.focus);
-    const key = focus ? JSON.stringify([focus.model, focus.textures]) : undefined;
+    const outfit = this.outfitItems(focus);
+    const key = outfit
+      ? JSON.stringify(['outfit', outfit.map((d) => [d.id, d.model, d.textures[0], d.highHeels, d.hairScale, d.kind, d.slot]), this.pack.body])
+      : focus
+        ? JSON.stringify([focus.model, focus.textures])
+        : undefined;
     if (key !== this.shownModel) {
       this.shownModel = key;
-      void this.showPreview(focus);
+      this.single.hidden = !!outfit;
+      this.outfit.el.hidden = !outfit;
+      if (outfit && focus) void this.showOutfit(outfit, focus.gender);
+      else void this.showPreview(focus);
     }
   }
 
@@ -190,6 +228,7 @@ export class PackView {
       add('male'),
       add('female'),
       h('button', { class: 'chip', title: 'Check models and textures for problems', onclick: () => void this.runChecks() }, 'Check'),
+      h('button', { class: 'chip', title: 'Find identical models and shared texture files', onclick: () => void this.findDuplicates() }, 'Duplicates…'),
       h('button', { class: 'chip', title: 'Optimise the pack’s textures (size, mipmaps, compression)', onclick: () => vscode.postMessage({ type: 'packOptimize' }) }, 'Optimise textures…'),
       h('button', { class: 'chip active', title: 'Build the FiveM resource', onclick: () => void this.build() }, 'Build'),
       this.status
@@ -210,20 +249,45 @@ export class PackView {
     return [d.model, ...d.textures, ...(d.cloth ? [d.cloth] : []), ...(d.firstPerson ? [d.firstPerson] : [])].filter((p) => this.exists[p] === false);
   }
 
+  private matches(d: PackDrawable): boolean {
+    if (!this.filter) return true;
+    const text = [d.name, d.model, d.group, ...(d.tags ?? []), d.slot, slotLabel(d.kind, d.slot)].filter(Boolean).join(' ').toLowerCase();
+    return this.filter.split(/\s+/).every((w) => text.includes(w));
+  }
+
   private renderList(): void {
     const scroll = this.list.scrollTop;
     const order = this.pack.drawables;
+    const limit = slotLimit(this.pack);
+    // Numbers are positions within the whole slot, even when the list is filtered.
+    const number = new Map<string, number>();
+    const counters = new Map<string, number>();
+    for (const d of order) {
+      const n = counters.get(groupKey(d)) ?? 0;
+      counters.set(groupKey(d), n + 1);
+      number.set(d.id, n);
+    }
     const sections = GENDERS.map((gender) => {
-      const own = order.filter((d) => d.gender === gender);
-      const groups = (['component', 'prop'] as DrawableKind[]).flatMap((kind) =>
-        (kind === 'prop' ? PROP_SLOTS : COMPONENT_SLOTS)
-          .map((s) => ({ kind, slot: s.key, label: s.label, items: own.filter((d) => d.kind === kind && d.slot === s.key) }))
-          .filter((g) => g.items.length)
-      );
+      const all = order.filter((d) => d.gender === gender);
+      const own = all.filter((d) => this.matches(d));
+      const groups =
+        this.groupBy === 'group'
+          ? [...new Set(own.map((d) => d.group ?? ''))]
+              .sort((a, b) => (a ? (b ? a.localeCompare(b) : -1) : 1))
+              .map((g) => ({ title: g || 'No group', sub: '', items: own.filter((d) => (d.group ?? '') === g), over: false }))
+          : (['component', 'prop'] as DrawableKind[]).flatMap((kind) =>
+              (kind === 'prop' ? PROP_SLOTS : COMPONENT_SLOTS)
+                .map((s) => {
+                  const items = own.filter((d) => d.kind === kind && d.slot === s.key);
+                  const total = all.filter((d) => d.kind === kind && d.slot === s.key).length;
+                  return { title: s.label, sub: s.key, items, over: total > limit };
+                })
+                .filter((g) => g.items.length)
+            );
       return h(
         'details',
         { class: 'room', open: true },
-        h('summary', null, h('strong', null, gender === 'male' ? 'Male' : 'Female'), h('span', { class: 'muted' }, ` · ${own.length}`)),
+        h('summary', null, h('strong', null, gender === 'male' ? 'Male' : 'Female'), h('span', { class: 'muted' }, ` · ${all.length}${own.length !== all.length ? ` (${own.length} shown)` : ''}`)),
         groups.length
           ? groups.map((g) =>
               h(
@@ -232,17 +296,17 @@ export class PackView {
                 h(
                   'div',
                   { class: 'pack-group-title' },
-                  `${g.label} `,
-                  h('span', { class: 'muted' }, `${g.slot} · ${g.items.length}`),
-                  g.items.length > MAX_DRAWABLES_PER_SLOT ? h('span', { class: 'warn small' }, ` (split: over ${MAX_DRAWABLES_PER_SLOT})`) : null
+                  `${g.title} `,
+                  h('span', { class: 'muted' }, `${g.sub ? `${g.sub} · ` : ''}${g.items.length}`),
+                  g.over ? h('span', { class: 'warn small' }, ` (split: over ${limit})`) : null
                 ),
-                g.items.map((d, i) => this.row(d, i))
+                g.items.map((d) => this.row(d, number.get(d.id) ?? 0))
               )
             )
-          : h('div', { class: 'muted small pack-empty' }, `No ${gender} drawables yet.`)
+          : h('div', { class: 'muted small pack-empty' }, all.length ? 'Nothing matches the filter.' : `No ${gender} drawables yet.`)
       );
     });
-    this.list.replaceChildren(...sections);
+    this.listBody.replaceChildren(...sections);
     this.list.scrollTop = scroll;
   }
 
@@ -269,8 +333,10 @@ export class PackView {
       },
       box,
       h('span', { class: `dot ${worst === 'error' ? 'missing' : worst === 'warning' ? 'warn-dot' : 'ok'}` }),
-      h('span', { class: 'pack-index' }, pad3(index)),
+      h('span', { class: 'pack-index' }, this.groupBy === 'group' ? `${d.slot} ${pad3(index)}` : pad3(index)),
       h('span', { class: 'pack-label' }, d.name || (d.reserved ? 'reserved' : shortName(d.model))),
+      ...(d.tags ?? []).slice(0, 3).map((t) => h('span', { class: 'pack-tag' }, t)),
+      (d.tags?.length ?? 0) > 3 ? h('span', { class: 'muted small' }, `+${d.tags!.length - 3}`) : null,
       h(
         'span',
         { class: 'muted small' },
@@ -326,7 +392,7 @@ export class PackView {
   private visibleOrder(): string[] {
     return GENDERS.flatMap((g) =>
       (['component', 'prop'] as DrawableKind[]).flatMap((kind) =>
-        (kind === 'prop' ? PROP_SLOTS : COMPONENT_SLOTS).flatMap((s) => this.pack.drawables.filter((d) => d.gender === g && d.kind === kind && d.slot === s.key).map((d) => d.id))
+        (kind === 'prop' ? PROP_SLOTS : COMPONENT_SLOTS).flatMap((s) => this.pack.drawables.filter((d) => d.gender === g && d.kind === kind && d.slot === s.key && this.matches(d)).map((d) => d.id))
       )
     );
   }
@@ -404,6 +470,8 @@ export class PackView {
     this.setDetails(
       h('div', { class: 'pack-details-title' }, h('strong', null, `${slotLabel(d.kind, d.slot)} ${pad3(index)}`), h('span', { class: 'muted' }, ` · ${d.gender}`)),
       this.field('Name', name),
+      this.groupField([d.id], d.group),
+      this.tagsField(d),
       this.field('Gender', this.genderSelect(d.gender, (g) => this.edit([d.id], (x) => (x.gender = g)))),
       this.field(
         'Slot',
@@ -480,9 +548,18 @@ export class PackView {
               : h('button', { class: 'chip mini', title: 'Cloth physics (.yld) for this drawable', onclick: () => void this.pick('cloth', (p) => this.edit([d.id], (x) => (x.cloth = p[0]))) }, 'Add .yld…')
           )
         : null,
+      d.reserved
+        ? null
+        : h(
+            'label',
+            { class: 'toggle block', title: 'Keep this drawable\u2019s textures as they are when the build optimises textures' },
+            h('input', { type: 'checkbox', checked: !!d.noOptimize, onchange: (e: Event) => this.edit([d.id], (x) => (x.noOptimize = (e.target as HTMLInputElement).checked || undefined)) }),
+            "Don't optimise when building"
+          ),
       h('div', { class: 'k pack-section' }, `Textures (${d.textures.length}${d.textures.length > MAX_TEXTURES ? `, max ${MAX_TEXTURES}` : ''})`),
       ...textures,
       h('button', { class: 'chip', onclick: () => void this.pick('textures', (p) => this.edit([d.id], (x) => x.textures.push(...p))) }, 'Add textures…'),
+      ...(d.reserved ? [] : this.embeddedSection(d)),
       this.issueList([...this.missingFiles(d).map((m) => ({ severity: 'error' as const, message: `Missing file: ${m}` })), ...this.issuesFor(d.id)]),
       h('div', { class: 'pack-danger' }, h('button', { class: 'chip', onclick: () => this.removeSelectedOr(d.id) }, 'Remove drawable'))
     );
@@ -528,6 +605,74 @@ export class PackView {
     return this.field('Audio', select);
   }
 
+  private groupField(ids: string[], value: string | undefined): HTMLElement {
+    const listId = 'pack-groups';
+    const input = h('input', { type: 'text', value: value ?? '', placeholder: 'No group', spellcheck: false });
+    input.setAttribute('list', listId); // read-only as a property
+    input.onchange = () => this.edit(ids, (x) => (input.value.trim() ? (x.group = input.value.trim()) : delete x.group));
+    const groups = [...new Set(this.pack.drawables.map((d) => d.group).filter((g): g is string => !!g))].sort();
+    return this.field('Group', input, h('datalist', { id: listId }, groups.map((g) => h('option', { value: g }))));
+  }
+
+  private tagsField(d: PackDrawable): HTMLElement {
+    const input = h('input', { type: 'text', placeholder: 'Add tag…', class: 'pack-tag-input', spellcheck: false });
+    input.onkeydown = (e) => {
+      if (e.key !== 'Enter' || !input.value.trim()) return;
+      const tag = input.value.trim();
+      this.edit([d.id], (x) => (x.tags = [...new Set([...(x.tags ?? []), tag])]));
+    };
+    return this.field(
+      'Tags',
+      ...(d.tags ?? []).map((t) =>
+        h('span', { class: 'pack-tag' }, t, h('button', { class: 'pack-tag-x', title: 'Remove tag', onclick: () => this.edit([d.id], (x) => ((x.tags = (x.tags ?? []).filter((y) => y !== t)), x.tags.length || delete x.tags)) }, '×'))
+      ),
+      input
+    );
+  }
+
+  /** Embedded textures of the model, with build-time replacements. */
+  private embeddedSection(d: PackDrawable): HTMLElement[] {
+    const info = this.embeddedInfo?.id === d.id ? this.embeddedInfo.textures : undefined;
+    const replaced = d.embedded ?? {};
+    const names = info ? info.map((t) => t.name) : Object.keys(replaced);
+    if (!names.length) return info ? [] : [h('div', { class: 'k pack-section' }, 'Embedded textures'), h('div', { class: 'muted small' }, 'Loading…')];
+    return [
+      h('div', { class: 'k pack-section', title: 'Textures stored inside the model (.ydd); replacements are applied to the built copy only' }, `Embedded textures (${names.length})`),
+      ...names.map((name) => {
+        const t = info?.find((x) => x.name === name);
+        return h(
+          'div',
+          { class: 'pack-path' },
+          h('span', { title: name }, name),
+          h('span', { class: 'muted small' }, t ? ` ${t.width}×${t.height} ${t.format}` : ''),
+          replaced[name] ? h('span', { class: 'warn small', title: replaced[name] }, ' replaced') : null,
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'chip mini', title: 'Replace at build time with an image (PNG, JPG, DDS…)', onclick: () => void this.replaceEmbedded(d, name) }, 'Replace…'),
+          replaced[name] ? h('button', { class: 'chip mini', onclick: () => this.edit([d.id], (x) => (delete x.embedded![name], Object.keys(x.embedded!).length || delete x.embedded)) }, 'Revert') : null
+        );
+      }),
+    ];
+  }
+
+  private async replaceEmbedded(d: PackDrawable, texture: string): Promise<void> {
+    const picked = await hostRequest({ type: 'pickImage', requestId: newRequestId() }, 'pickedImage');
+    if (!picked.name || !picked.data) return;
+    try {
+      let dds: Uint8Array;
+      if (/\.dds$/i.test(picked.name)) dds = picked.data;
+      else {
+        const image = await decodeImage(picked.name, picked.data);
+        dds = buildDds('A8B8G8R8', image.canvas.width, image.canvas.height, 1, canvasToRgba(image.canvas));
+      }
+      const name = `${shortName(d.model)}_${texture}.dds`;
+      const saved = await hostRequest({ type: 'packSaveAsset', requestId: newRequestId(), name, data: dds }, 'packPicked');
+      this.edit([d.id], (x) => (x.embedded = { ...(x.embedded ?? {}), [texture]: saved.paths[0] }));
+      this.say(`${texture} will be replaced when building.`);
+    } catch (err) {
+      this.say(`Couldn't use ${picked.name}: ${(err as Error).message}`);
+    }
+  }
+
   private removeSelectedOr(id: string): void {
     if (!this.selected.size) this.selected = new Set([id]);
     this.removeSelected();
@@ -549,6 +694,20 @@ export class PackView {
             if (kind === 'prop') delete x.hasSkin;
           })
         )
+      ),
+      this.groupField(ids, same((d) => d.group)),
+      this.field(
+        'Tags',
+        (() => {
+          const input = h('input', { type: 'text', placeholder: 'Add tag to all…', spellcheck: false });
+          input.onkeydown = (e) => e.key === 'Enter' && input.value.trim() && this.edit(ids, (x) => (x.tags = [...new Set([...(x.tags ?? []), input.value.trim()])]));
+          return input;
+        })()
+      ),
+      this.field(
+        'Optimise',
+        h('button', { class: 'chip', onclick: () => this.edit(ids, (x) => delete x.noOptimize) }, 'Allow'),
+        h('button', { class: 'chip', onclick: () => this.edit(ids, (x) => (x.noOptimize = true)) }, "Don't")
       ),
       components.length
         ? this.field(
@@ -583,6 +742,77 @@ export class PackView {
       this.issueList(chosen.flatMap((d) => this.issuesFor(d.id).map((i) => ({ ...i, message: `${slotLabel(d.kind, d.slot)}: ${i.message}` })))),
       h('div', { class: 'pack-danger' }, h('button', { class: 'chip', onclick: () => this.removeSelected() }, `Remove ${chosen.length} drawables`))
     );
+  }
+
+  private splitField(): HTMLElement {
+    const input = h('input', { type: 'number', min: '1', max: '256', step: '1', value: String(slotLimit(this.pack)), class: 'pack-amount', title: 'Drawables per gender and slot before the pack is split into another collection (1–256)' });
+    input.onchange = () => {
+      const v = Math.max(1, Math.min(256, Math.floor(Number(input.value) || 256)));
+      this.commit((p) => (v === 256 ? delete p.maxPerSlot : (p.maxPerSlot = v)));
+    };
+    return this.field('Split at', input, h('span', { class: 'muted small' }, 'per slot'));
+  }
+
+  private buildOptimizeFields(): HTMLElement[] {
+    const o = this.pack.optimize;
+    const set = (change: Partial<NonNullable<ClothPack['optimize']>> | undefined) =>
+      this.commit((p) => (change ? (p.optimize = { maxSize: 2048, addMips: true, compress: true, embedded: true, ...p.optimize, ...change }) : delete p.optimize));
+    const enabled = h('input', { type: 'checkbox', checked: !!o, onchange: (e: Event) => set((e.target as HTMLInputElement).checked ? {} : undefined) });
+    const rows: HTMLElement[] = [
+      h('div', { class: 'k pack-section' }, 'Build'),
+      h('label', { class: 'toggle block', title: 'Optimise copies of the textures while building; your source files are not changed' }, enabled, 'Optimise textures while building'),
+    ];
+    if (o) {
+      const size = h('select', null, [0, 4096, 2048, 1024, 512].map((n) => h('option', { value: String(n), selected: n === o.maxSize }, n ? `At most ${n} px` : 'No size limit')));
+      size.onchange = () => set({ maxSize: Number(size.value) });
+      const toggle = (label: string, key: 'addMips' | 'compress' | 'embedded', title: string) =>
+        h('label', { class: 'toggle block pack-indent', title }, h('input', { type: 'checkbox', checked: o[key], onchange: (e: Event) => set({ [key]: (e.target as HTMLInputElement).checked }) }), label);
+      rows.push(
+        this.field('Size', size),
+        toggle('Add missing mipmaps', 'addMips', 'Generate mipmaps for textures that have none'),
+        toggle('Compress uncompressed', 'compress', 'Convert 32-bit textures to DXT1/DXT5'),
+        toggle('Also textures inside models', 'embedded', 'Optimise textures embedded in the .ydd files too. They are rewritten in place: the file gets smaller, but the model\u2019s streaming memory stays the same')
+      );
+    }
+    return rows;
+  }
+
+  /** Base ped models shown under the clothes in the outfit preview. */
+  private bodyFields(): HTMLElement[] {
+    const rows: HTMLElement[] = [h('div', { class: 'k pack-section', title: 'Optional: base freemode body parts (exported .ydd + .ytd) to dress in the preview' }, 'Preview body')];
+    for (const g of GENDERS) {
+      const parts = this.pack.body?.[g] ?? [];
+      rows.push(
+        this.field(
+          g === 'male' ? 'Male' : 'Female',
+          ...parts.map((part, i) =>
+            h(
+              'span',
+              { class: 'pack-tag', title: `${part.model}${part.texture ? `\n${part.texture}` : ''}` },
+              shortName(part.model),
+              h('button', { class: 'pack-tag-x', title: 'Remove', onclick: () => this.commit((p) => p.body![g]!.splice(i, 1)) }, '×')
+            )
+          ),
+          h(
+            'button',
+            {
+              class: 'chip mini',
+              title: 'Add a body model (.ydd), then optionally its texture (.ytd)',
+              onclick: () =>
+                void this.pick('model', (models) =>
+                  void this.pick('textures', (tex) => this.commit((p) => ((p.body ??= {}), (p.body[g] ??= []).push({ model: models[0], ...(tex[0] ? { texture: tex[0] } : {}) })))).then(() => {
+                    // No texture chosen: add the model alone.
+                    if (!this.pack.body?.[g]?.some((b) => b.model === models[0])) this.commit((p) => ((p.body ??= {}), (p.body[g] ??= []).push({ model: models[0] })));
+                  })
+                ),
+            },
+            'Add…'
+          )
+        )
+      );
+    }
+    rows.push(h('div', { class: 'muted small' }, 'Select several drawables (Ctrl/Cmd-click) to preview them together; body parts are added under them.'));
+    return rows;
   }
 
   /** "Add reserved drawable": a placeholder in a chosen gender and slot. */
@@ -622,7 +852,10 @@ export class PackView {
       this.field('Collection', this.pack.name),
       ...bySlot,
       this.field('Build to', output),
+      this.splitField(),
       this.reservedAdder(),
+      ...this.buildOptimizeFields(),
+      ...this.bodyFields(),
       h(
         'div',
         { class: 'muted small pack-help' },
@@ -670,6 +903,26 @@ export class PackView {
     this.say(`Added ${added.length} drawable${added.length === 1 ? '' : 's'}.`);
   }
 
+  private async findDuplicates(): Promise<void> {
+    this.say('Looking for duplicates…');
+    const reply = await hostRequest({ type: 'packFindDuplicates', requestId: newRequestId() }, 'packDuplicates');
+    this.say('');
+    duplicateInspector(reply.groups, this.pack, {
+      show: (id) => {
+        this.selected = new Set([id]);
+        this.focus = id;
+        this.filter = '';
+        this.render();
+        this.list.querySelector('.pack-row.focused')?.scrollIntoView({ block: 'center' });
+      },
+      remove: (ids) => {
+        const set = new Set(ids);
+        this.commit((p) => (p.drawables = p.drawables.filter((d) => !set.has(d.id))));
+        this.say(`Removed ${ids.length} duplicate${ids.length === 1 ? '' : 's'} (Undo with Ctrl/Cmd+Z).`);
+      },
+    });
+  }
+
   private async runChecks(): Promise<void> {
     this.say('Checking…');
     const reply = await hostRequest({ type: 'packCheck', requestId: newRequestId() }, 'packChecks');
@@ -695,6 +948,50 @@ export class PackView {
 
   // -- preview -------------------------------------------------------------------
 
+  /**
+   * Drawables to show together: the selection (of the focused drawable's gender)
+   * when several are selected, or the focused one with body parts when the pack
+   * has some; undefined for the single-drawable preview.
+   */
+  private outfitItems(focus: PackDrawable | undefined): PackDrawable[] | undefined {
+    if (!focus) return undefined;
+    const chosen = this.pack.drawables.filter((d) => this.selected.has(d.id) && d.gender === focus.gender && !d.reserved);
+    if (chosen.length > 1) return chosen;
+    if (this.pack.body?.[focus.gender]?.length && !focus.reserved) return [focus];
+    return undefined;
+  }
+
+  private async showOutfit(drawables: PackDrawable[], gender: Gender): Promise<void> {
+    const token = ++this.token;
+    const body = this.pack.body?.[gender] ?? [];
+    this.outfit.setStatus(`Loading ${drawables.length + body.length} models…`);
+    const load = async (model: string, texture?: string) => {
+      const [m, t] = await Promise.all([
+        hostRequest({ type: 'packLoadModel', requestId: newRequestId(), path: model, maxTextureSize: PREVIEW_TEXTURE_SIZE }, 'drawableFile'),
+        texture ? hostRequest({ type: 'packLoadTexture', requestId: newRequestId(), path: texture, maxSize: PREVIEW_TEXTURE_SIZE }, 'textureFile') : Promise.resolve(undefined),
+      ]);
+      const tex = t?.textures.find((x) => !/_(n|s|nm|spec|normal)$/i.test(x.name)) ?? t?.textures[0];
+      return { drawable: m.drawables[0], texture: tex, error: m.error };
+    };
+    const items: OutfitItem[] = [];
+    const failed: string[] = [];
+    for (const [i, part] of body.entries()) {
+      const r = await load(part.model, part.texture);
+      if (r.drawable) items.push({ key: `body${i}`, drawable: r.drawable, texture: r.texture, kind: 'body' });
+      else failed.push(shortName(part.model));
+    }
+    for (const d of drawables) {
+      const r = await load(d.model, d.textures[0]);
+      if (r.drawable && d.id === this.focus) this.embeddedInfo = { id: d.id, textures: r.drawable.textures };
+      if (r.drawable) items.push({ key: d.id, drawable: r.drawable, texture: r.texture, kind: d.kind, slot: d.slot, highHeels: d.highHeels, hairScale: d.hairScale });
+      else failed.push(d.name || shortName(d.model));
+    }
+    if (token !== this.token) return;
+    if (this.selected.size <= 1) this.renderDetails();
+    this.outfit.show(items, true);
+    this.outfit.setStatus(failed.length ? `Couldn't load ${failed.join(', ')}` : '');
+  }
+
   private async showPreview(d: PackDrawable | undefined): Promise<void> {
     const token = ++this.token;
     this.panel.setVariationTexture(undefined);
@@ -716,6 +1013,8 @@ export class PackView {
     const model = await hostRequest({ type: 'packLoadModel', requestId: newRequestId(), path: d.model, maxTextureSize: PREVIEW_TEXTURE_SIZE }, 'drawableFile');
     if (token !== this.token) return;
     this.panel.setDrawables(model.drawables);
+    this.embeddedInfo = { id: d.id, textures: model.drawables[0]?.textures ?? [] };
+    if (this.selected.size <= 1) this.renderDetails();
     this.panel.setStatus(model.error ?? (model.drawables.length ? '' : 'The model file is empty.'));
 
     let applied = false;

@@ -260,6 +260,11 @@ class PackSession {
         case 'packBuild':
           await this.build(m.requestId);
           break;
+        case 'pickImage': {
+          const picked = await vscode.window.showOpenDialog({ canSelectMany: false, defaultUri: this.dir, openLabel: 'Use image', filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif', 'dds'] } });
+          this.post(picked?.[0] ? { type: 'pickedImage', requestId: m.requestId, name: basename(picked[0]), data: await vscode.workspace.fs.readFile(picked[0]) } : { type: 'pickedImage', requestId: m.requestId });
+          break;
+        }
         case 'packFindDuplicates':
           this.post({ type: 'packDuplicates', requestId: m.requestId, groups: await this.duplicates() });
           break;
