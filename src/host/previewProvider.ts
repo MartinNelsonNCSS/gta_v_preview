@@ -212,6 +212,9 @@ class PreviewSession {
         case 'liveryMeta':
           await this.liveryMeta(message.requestId, message.change);
           break;
+        case 'newModLivery':
+          await vscode.commands.executeCommand('gtaPreview.newModLivery', this.uri);
+          break;
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', this.uri, 'default');
           break;
@@ -284,7 +287,14 @@ class PreviewSession {
         }
       }
     } catch (err) {
-      this.post({ type: 'error', message: (err as Error).message });
+      const escrowedVehicle = this.kind === 'fragment' && isEncrypted(data);
+      this.post({
+        type: 'error',
+        message: escrowedVehicle
+          ? `${(err as Error).message} Liveries for escrow-protected vehicles are made as separate livery models from the creator's templates.`
+          : (err as Error).message,
+        ...(escrowedVehicle ? { modLivery: true } : {}),
+      });
     }
   }
 

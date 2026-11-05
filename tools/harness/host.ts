@@ -4,7 +4,9 @@
  */
 import { GtaPreviewProvider } from '../../src/host/previewProvider';
 import type { ViewKind, WebviewToHost } from '../../src/shared/model';
-import { ROOT, textDocuments, Uri } from './vscode-stub';
+import { registeredCommands, ROOT, textDocuments, Uri, window as vsWindow } from './vscode-stub';
+import { registerModLivery } from '../../src/host/modLiveryPanel';
+import { WorkspaceIndex } from '../../src/host/workspaceIndex';
 import { PackEditorProvider } from '../../src/host/packEditor';
 import { summarizeResource } from '../../src/formats/scan';
 import { readRsc7SystemOnly } from '../../src/formats/rsc7';
@@ -64,6 +66,12 @@ if (optimize) {
       void panel.webview.postMessage({ type: 'optimizeDone' });
     }
   });
+} else if (params.has('modlivery')) {
+  // The real mod-kit livery panel (?modlivery or ?modlivery=<path of a .yft/carcols to start from>).
+  vsWindow.createWebviewPanel = () => panel;
+  registerModLivery({ extensionUri: Uri.file('/ext') } as never, new WorkspaceIndex());
+  const target = params.get('modlivery');
+  void registeredCommands.get('gtaPreview.newModLivery')!(target ? Uri.file(`${ROOT}/${target}`) : undefined);
 } else if (convert) {
   // Minimal stand-in for host/converterPanel.ts (which needs vscode.window.createWebviewPanel).
   const files = convert.split(',');

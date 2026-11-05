@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.15.0
+
+- **New Mod-Kit Livery…**: make liveries for vehicles whose liveries are separate models (`VMT_LIVERY_MOD`), including escrow-protected packs that publish livery templates (such as ONX's blank livery `.yft` and UV template PNGs). Your artwork (followed live from your image app, shown over the UV template) goes into a copy of the template model at full size with mipmaps, the livery is added to the vehicle's kit in `carcols.meta`, and a resource of its own streams it and names it in game (`AddTextEntry`). Existing readable livery models can be updated. Offered from the Explorer and when opening an escrow-protected vehicle.
+- Textures embedded in models (`.ydr`/`.ydd`/`.yft`) can now be replaced at any size, not only within their current data size.
+- Fixed: rebuilt texture dictionaries could get a wrong header when the file came from a Node `Buffer`.
+
 ## 0.14.0
 
 Vehicle liveries (`.yft`):

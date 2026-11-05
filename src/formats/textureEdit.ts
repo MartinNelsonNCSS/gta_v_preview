@@ -3,7 +3,7 @@ import { ResourceReader } from './reader';
 import { readRsc7, ResourceError } from './rsc7';
 import { decodeToRgba, formatCode, readTexture, textureDataSize } from './textures';
 import { encodeMipChain, isBlockFormat, isEncodable, maxMipLevels, mipLevelsFor } from './bcEncode';
-import { packSegment } from './resourceBuilder';
+import { packSegment, pageRanges } from './resourceBuilder';
 import { fragmentDrawables } from './yft';
 import { buildDds, parseDds } from './dds';
 import { joaat } from './hash';
@@ -145,12 +145,7 @@ export function replaceTexture(file: Uint8Array, kind: TextureFileKind, name: st
     writeTextureHeader(r.bytes(loc.ptr, 0x90), target, width, height, levels, t.dataPtr);
     return repack(file, res);
   }
-  if (kind !== 'ytd') {
-    throw new ResourceError(
-      `${width}×${height} ${target} with ${levels} mips needs ${sizes(data.length, t.size)[0]}, but this texture only has ${sizes(data.length, t.size)[1]} inside the .${kind}. ` +
-        'Choose a smaller size, a more compact format or fewer mips, or move the texture to a .ytd.'
-    );
-  }
+  if (kind !== 'ytd') return rebuildModelTextures(file, kind, new Map([[t.name.toLowerCase(), { width, height, levels, format: target, data }]]));
   return rebuildYtd(file, r, new Map([[t.name.toLowerCase(), { width, height, levels, format: target, data }]]));
 }
 
@@ -188,9 +183,6 @@ export interface TextureChange {
   data: Uint8Array;
 }
 
-const kb = (n: number) => `${Math.ceil(n / 1024).toLocaleString()} KB`;
-/** Two sizes for a message; exact bytes when they'd round to the same KB. */
-const sizes = (a: number, b: number) => (kb(a) === kb(b) ? [`${a.toLocaleString()} bytes`, `${b.toLocaleString()} bytes`] : [kb(a), kb(b)]);
 
 /** Bytes per pixel row (the texture "stride" field). */
 function strideFor(format: string, width: number): number {
@@ -239,6 +231,87 @@ function withHeader(header: Uint8Array, compressed: Uint8Array): Uint8Array {
   out.set(header, 0);
   out.set(compressed, 16);
   return out;
+}
+
+/**
+ * Rewrites the graphics segment of a model (.ydr/.ydd/.yft) with some embedded
+ * textures' data replaced (keyed by lower-case name), so they can grow.
+ *
+ * In these files the graphics segment holds only texture pixels (vertex and
+ * index data live in the system segment), so every pointer into it must be a
+ * texture's data; anything else stops the rewrite rather than risk breaking
+ * the file. The system segment keeps its layout: only those pointers, the
+ * changed textures' headers and the page count change.
+ */
+export function rebuildModelTextures(file: Uint8Array, kind: Exclude<TextureFileKind, 'ytd'>, changes: Map<string, TextureChange>): Uint8Array {
+  const res = readRsc7(file);
+  const r = new ResourceReader(res);
+  const GFX = 0x60000000;
+  // Data blocks by address (textures can share one).
+  const blocks = new Map<number, { size: number; locs: TextureLocation[]; change?: TextureChange }>();
+  for (const loc of locateTextures(r, kind)) {
+    const t = rawTexture(r, loc);
+    let b = blocks.get(t.dataPtr);
+    if (!b) blocks.set(t.dataPtr, (b = { size: t.size, locs: [] }));
+    b.size = Math.max(b.size, t.size);
+    b.locs.push(loc);
+    const change = changes.get(loc.name.toLowerCase());
+    if (change) b.change = change;
+  }
+  for (const name of changes.keys()) {
+    if (![...blocks.values()].some((b) => b.locs.some((l) => l.name.toLowerCase() === name))) throw new ResourceError(`Texture "${name}" was not found in this file.`);
+  }
+
+  // Every pointer into the graphics segment, which must all be texture data.
+  const sys = res.system;
+  const sv = new DataView(sys.buffer, sys.byteOffset, sys.byteLength);
+  const refs: { at: number; addr: number }[] = [];
+  for (let at = 0; at + 8 <= sys.length; at += 8) {
+    const lo = sv.getUint32(at, true);
+    if (lo >= GFX && lo < GFX + res.graphics.length && sv.getUint32(at + 4, true) === 0) refs.push({ at, addr: lo });
+  }
+  const unknown = refs.find((x) => !blocks.has(x.addr));
+  if (unknown) throw new ResourceError("This model's graphics data isn't laid out as expected, so its textures can't be resized. Keep the texture's size, or use a .ytd.");
+
+  const list = [...blocks.entries()].sort((a, b) => a[0] - b[0]);
+  const sizes = list.map(([, b]) => (b.change ? b.change.data.length : b.size));
+  const header = new Uint8Array(file.subarray(0, 16)); // a copy with its own buffer (Buffer.slice would share)
+  const hv = new DataView(header.buffer);
+  const oldPages = pageRanges(hv.getUint32(12, true)).length;
+  let gfx = packSegment(sizes);
+  if (gfx.pageCount > Math.max(1, oldPages)) {
+    // The page table inside the file only has room for the original page count: use one page for everything.
+    const offsets: number[] = [];
+    let total = 0;
+    for (const size of sizes) {
+      offsets.push(total);
+      total += Math.ceil(size / 16) * 16;
+    }
+    gfx = { ...packSegment([total]), offsets };
+  }
+
+  const graphics = new Uint8Array(gfx.size);
+  const moved = new Map<number, number>();
+  list.forEach(([addr, b], i) => {
+    const at = gfx.offsets[i];
+    graphics.set(b.change ? b.change.data : res.graphics.subarray(addr - GFX, addr - GFX + b.size), at);
+    moved.set(addr, GFX + at);
+  });
+  for (const { at, addr } of refs) sv.setUint32(at, moved.get(addr)!, true);
+  for (const [addr, b] of list) {
+    if (!b.change) continue;
+    const c = b.change;
+    for (const loc of b.locs) writeTextureHeader(r.bytes(loc.ptr, 0x90), c.format, c.width, c.height, c.levels, moved.get(addr)!);
+  }
+  // The resource's own page table records how many graphics pages it has.
+  const pagesInfo = r.ptr(0x50000008);
+  if (r.isValid(pagesInfo)) r.bytes(pagesInfo + 9, 1)[0] = gfx.pageCount;
+
+  hv.setUint32(12, ((hv.getUint32(12, true) & 0xf0000000) | gfx.flags) >>> 0, true);
+  const payload = new Uint8Array(sys.length + graphics.length);
+  payload.set(sys, 0);
+  payload.set(graphics, sys.length);
+  return withHeader(header, deflateSync(payload, { level: 6 }));
 }
 
 /** One texture of a .ytd being written: its 0x90-byte structure (template) and data. */
@@ -408,7 +481,7 @@ function writeYtd(file: Uint8Array, r: ResourceReader, unsorted: YtdEntry[]): Ui
     }
   });
 
-  const header = file.slice(0, 16);
+  const header = new Uint8Array(file.subarray(0, 16)); // a copy with its own buffer (Buffer.slice would share)
   const hv = new DataView(header.buffer);
   hv.setUint32(8, ((hv.getUint32(8, true) & 0xf0000000) | sys.flags) >>> 0, true);
   hv.setUint32(12, ((hv.getUint32(12, true) & 0xf0000000) | gfx.flags) >>> 0, true);

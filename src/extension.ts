@@ -6,6 +6,7 @@ import { HealthDiagnostics } from './host/healthCheck';
 import { registerAssetViews } from './host/assetTree';
 import { registerOptimizer } from './host/optimizerPanel';
 import { registerPackEditor } from './host/packEditor';
+import { registerModLivery } from './host/modLiveryPanel';
 
 export function activate(context: vscode.ExtensionContext): void {
   const index = new WorkspaceIndex();
@@ -17,7 +18,8 @@ export function activate(context: vscode.ExtensionContext): void {
     ...registerConverter(context),
     ...registerAssetViews(context, index, health),
     ...registerOptimizer(context, index),
-    ...registerPackEditor(context)
+    ...registerPackEditor(context),
+    ...registerModLivery(context, index)
   );
 }
 

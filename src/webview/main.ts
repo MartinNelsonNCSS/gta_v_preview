@@ -11,10 +11,12 @@ import { optimizerView } from './views/optimizerView';
 import { ycdView } from './views/ycdView';
 import { yldView } from './views/yldView';
 import { PackView } from './views/packView';
+import { modLiveryView, ModLiveryView } from './views/modLiveryView';
 
 const app = document.getElementById('app')!;
 let modelPanel: ModelPanel | undefined;
 let packView: PackView | undefined;
+let modLivery: ModLiveryView | undefined;
 
 function show(el: HTMLElement): void {
   app.replaceChildren(el);
@@ -72,8 +74,12 @@ onHostMessage((m: HostToWebview) => {
     case 'optimizerFiles':
       show(optimizerView(m.scope, m.files));
       break;
+    case 'modLiveryInit':
+      if (modLivery) modLivery.update(m.vehicles, m.templates, m.preselect);
+      else show((modLivery = modLiveryView(m.vehicles, m.templates, m.preselect)).el);
+      break;
     case 'error':
-      if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message));
+      if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message, m.modLivery));
       else console.error(m.message);
       break;
     case 'status':

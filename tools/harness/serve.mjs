@@ -9,11 +9,11 @@ const repo = resolve(new URL('../..', import.meta.url).pathname);
 const EXTS = ['.ydr', '.ydd', '.ytyp', '.ytd', '.yft', '.ybn', '.ymap', '.ymt', '.ycd', '.yld'];
 const TYPES = { '.js': 'text/javascript', '.css': 'text/css', '.html': 'text/html', '.json': 'application/json', '.map': 'application/json' };
 
-async function walk(dir, out = []) {
+async function walk(dir, out = [], all = false) {
   for (const e of await readdir(dir, { withFileTypes: true })) {
     const p = join(dir, e.name);
-    if (e.isDirectory()) await walk(p, out);
-    else if (EXTS.includes(extname(e.name).toLowerCase())) out.push(relative(root, p).split('\\').join('/'));
+    if (e.isDirectory()) await walk(p, out, all);
+    else if (all || EXTS.includes(extname(e.name).toLowerCase())) out.push(relative(root, p).split('\\').join('/'));
   }
   return out;
 }
@@ -26,14 +26,14 @@ createServer(async (req, res) => {
   const url = new URL(req.url, 'http://x');
   try {
     if (url.pathname === '/') {
-      const file = url.searchParams.get('file') ?? url.searchParams.get('convert') ?? url.searchParams.get('optimize');
+      const file = url.searchParams.get('file') ?? url.searchParams.get('convert') ?? url.searchParams.get('optimize') ?? (url.searchParams.has('modlivery') ? 'modlivery' : null);
       if (file) return res.writeHead(200, { 'content-type': 'text/html' }).end(page(file));
       const files = (await walk(root)).filter((f) => /\.(ydr|ydd|yft|ytyp|ytd|ymap|ybn|ymt|ycd|yld)$|\.clothpack\.json$/i.test(f));
       return res.writeHead(200, { 'content-type': 'text/html' }).end(
         `<body style="font:13px sans-serif;background:#1e1e1e;color:#ccc">${files.map((f) => `<div><a style="color:#4fc3f7" href="/?file=${encodeURIComponent(f)}">${f}</a></div>`).join('')}</body>`
       );
     }
-    if (url.pathname === '/api/list') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(await walk(root)));
+    if (url.pathname === '/api/list') return res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(await walk(root, [], url.searchParams.has('all'))));
     let path;
     if (url.pathname.startsWith('/files/')) path = join(root, decodeURIComponent(url.pathname.slice(7)));
     if (path && req.method === 'PUT') {

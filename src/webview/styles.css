@@ -1240,3 +1240,22 @@ input[type='number'] {
 .livery-keys li { margin: 1px 0; }
 .livery-heading { display: flex; align-items: center; gap: 4px; }
 .livery-heading .chip.mini { text-transform: none; }
+
+/* Mod-kit livery maker */
+.modlivery { padding: 12px 16px; max-width: 1400px; }
+.modlivery h2 { margin: 0 0 4px; font-size: 1.2em; }
+.modlivery-layout { display: flex; gap: 20px; align-items: flex-start; flex-wrap: wrap; margin-top: 8px; }
+.modlivery-form { flex: 1 1 360px; min-width: 300px; max-width: 520px; display: flex; flex-direction: column; gap: 4px; }
+.modlivery-form select { max-width: 100%; }
+.modlivery-section { display: flex; flex-direction: column; gap: 4px; }
+.modlivery-side { flex: 1 1 400px; max-width: 720px; }
+.modlivery-preview { width: 100%; aspect-ratio: 1; border: 1px solid var(--vscode-panel-border, #444); display: block; }
+.modlivery-mods { max-height: 220px; overflow: auto; border: 1px solid var(--vscode-panel-border, #444); border-radius: 3px; }
+.modlivery-mod { display: flex; align-items: center; gap: 6px; padding: 2px 6px; }
+.modlivery-mod.active { background: var(--vscode-list-activeSelectionBackground); color: var(--vscode-list-activeSelectionForeground); }
+.modlivery-index { min-width: 1.6em; text-align: right; }
+.modlivery-field { display: flex; align-items: center; gap: 8px; }
+.modlivery-field > span { min-width: 7.5em; }
+.modlivery-name { flex: 1; min-width: 0; }
+.modlivery-status { margin-top: 4px; white-space: pre-wrap; }
+.error-view .row { justify-content: center; margin-top: 8px; }

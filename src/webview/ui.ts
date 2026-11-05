@@ -117,8 +117,14 @@ export function fmt(n: number, digits = 2): string {
   return Number.isInteger(n) ? n.toLocaleString() : n.toFixed(digits);
 }
 
-export function errorView(message: string): HTMLElement {
-  return h('div', { class: 'error-view' }, h('div', { class: 'error-title' }, 'Unable to preview this file'), h('div', null, message));
+export function errorView(message: string, modLivery = false): HTMLElement {
+  return h(
+    'div',
+    { class: 'error-view' },
+    h('div', { class: 'error-title' }, 'Unable to preview this file'),
+    h('div', null, message),
+    modLivery ? h('div', { class: 'row' }, h('button', { class: 'chip active', onclick: () => vscode.postMessage({ type: 'newModLivery' }) }, 'New mod-kit livery…')) : null
+  );
 }
 
 /**

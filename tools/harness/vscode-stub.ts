@@ -18,6 +18,18 @@ export class Uri {
   get fsPath() { return this.path; }
 }
 export enum FileType { File = 1, Directory = 2 }
+export enum ViewColumn { Active = -1, One = 1 }
+export class EventEmitter<T> {
+  private listeners: ((e: T) => void)[] = [];
+  readonly event = (l: (e: T) => void) => (this.listeners.push(l), { dispose: () => (this.listeners = this.listeners.filter((x) => x !== l)) });
+  fire(e: T) { this.listeners.forEach((l) => l(e)); }
+  dispose() { this.listeners = []; }
+}
+export class Disposable {
+  constructor(private readonly fn: () => void) {}
+  static from(...items: { dispose(): unknown }[]) { return new Disposable(() => items.forEach((i) => i.dispose())); }
+  dispose() { this.fn(); }
+}
 export enum ProgressLocation { SourceControl = 1, Window = 10, Notification = 15 }
 export class Position { constructor(readonly line: number, readonly character: number) {} }
 export class Range { constructor(readonly startLine: number, readonly startCharacter: number, readonly endLine: number, readonly endCharacter: number) {} }
@@ -30,8 +42,38 @@ export const textDocuments = new Map<string, { uri: Uri; text: string; getText()
 const docListeners: ((e: { document: unknown; contentChanges: unknown[] }) => void)[] = [];
 export class RelativePattern { constructor(readonly base: unknown, readonly pattern: string) {} }
 
+/** Glob (**, *, ?, {a,b}) to a case-insensitive regular expression over forward-slash paths. */
+function globSource(g: string): string {
+  let re = '';
+  for (let i = 0; i < g.length; ) {
+    const c = g[i];
+    if (c === '*' && g[i + 1] === '*') {
+      if (g[i + 2] === '/') ((re += '(?:.*/)?'), (i += 3));
+      else ((re += '.*'), (i += 2));
+    } else if (c === '*') ((re += '[^/]*'), i++);
+    else if (c === '?') ((re += '[^/]'), i++);
+    else if (c === '{') {
+      // Alternatives, allowing nested braces.
+      let depth = 0;
+      let j = i;
+      const alts: string[] = [];
+      let start = i + 1;
+      for (; j < g.length; j++) {
+        if (g[j] === '{') depth++;
+        else if (g[j] === '}' && --depth === 0) break;
+        else if (g[j] === ',' && depth === 1) ((alts.push(g.slice(start, j))), (start = j + 1));
+      }
+      alts.push(g.slice(start, j));
+      re += `(?:${alts.map(globSource).join('|')})`;
+      i = j + 1;
+    } else ((re += c.replace(/[.+^$()|[\]\\]/g, '\\$&')), i++);
+  }
+  return re;
+}
+const globRegex = (g: string) => new RegExp(`^${globSource(g)}$`, 'i');
+
 let listing: Promise<string[]> | undefined;
-const list = () => (listing ??= fetch('/api/list').then((r) => r.json() as Promise<string[]>));
+const list = () => (listing ??= fetch('/api/list?all').then((r) => r.json() as Promise<string[]>));
 const url = (u: Uri) => u.path.split('/').map(encodeURIComponent).join('/');
 const noop = { dispose() {} };
 /** Files picked or saved through the stubbed dialogs live in memory. */
@@ -92,10 +134,32 @@ export const workspace = {
     }
     return true;
   },
-  findFiles: async () => (await list()).map((p) => Uri.file(`${ROOT}/${p}`)),
+  findFiles: async (glob: string | RelativePattern, exclude?: string, max?: number) => {
+    listing = undefined;
+    const base = typeof glob === 'string' ? ROOT : (glob.base as Uri).path;
+    const pattern = globRegex(typeof glob === 'string' ? glob : glob.pattern);
+    const skip = exclude ? globRegex(exclude) : undefined;
+    const found = (await list())
+      .map((p) => `${ROOT}/${p}`)
+      .filter((p) => p.startsWith(base.replace(/\/$/, '') + '/') && pattern.test(p.slice(base.replace(/\/$/, '').length + 1)) && !(skip && skip.test(p.slice(ROOT.length + 1))));
+    return found.slice(0, max ?? found.length).map((p) => Uri.file(p));
+  },
+  get textDocuments() {
+    return [...textDocuments.values()];
+  },
+  openTextDocument: async (u: Uri) => {
+    const known = textDocuments.get(u.toString());
+    if (known) return known;
+    const text = await (await fetch(url(u))).text();
+    const doc = { uri: u, text, getText: () => doc.text, positionAt: (o: number) => o, save: async () => true, get lineCount() { return doc.text.split('\n').length; } };
+    textDocuments.set(u.toString(), doc);
+    return doc;
+  },
+  asRelativePath: (u: Uri) => u.path.replace(new RegExp(`^${ROOT}/`), ''),
   getConfiguration: () => ({ get: (_k: string, d: unknown) => d }),
-  createFileSystemWatcher: () => ({ onDidChange: () => noop, onDidCreate: () => noop, dispose() {} }),
+  createFileSystemWatcher: () => ({ onDidChange: () => noop, onDidCreate: () => noop, onDidDelete: () => noop, dispose() {} }),
 };
+(workspace.fs as Record<string, unknown>).copy = async (a: Uri, b: Uri) => workspace.fs.writeFile(b, await workspace.fs.readFile(a));
 export const env = { openExternal: async (u: Uri) => (console.info('[openExternal]', u.path), true) };
 export const window = {
   showInformationMessage: async (m: string) => (console.info('[info]', m), undefined),
@@ -135,6 +199,10 @@ export const window = {
   },
   showSaveDialog: async (o: { defaultUri?: Uri }) => Uri.file(`/__mem__/${o.defaultUri?.path.split('/').pop() ?? 'export'}`),
   registerCustomEditorProvider: () => noop,
+  /** Set by the harness page to its single panel. */
+  createWebviewPanel: (() => {
+    throw new Error('no panel');
+  }) as (...args: unknown[]) => unknown,
 };
 /** Test hook: lets automated checks inject a picked file without a dialog. */
 (globalThis as unknown as { __harnessPick?: (name: string, data: Uint8Array) => void }).__harnessPick = (name, data) => {
@@ -172,5 +240,7 @@ export const commands = {
     if (cmd === 'vscode.openWith') location.search = `?file=${encodeURIComponent(uri.path.slice(ROOT.length + 1))}`;
     else console.info('[command]', cmd, uri?.path ?? '');
   },
-  registerCommand: () => noop,
+  registerCommand: (id: string, handler: (...args: unknown[]) => unknown) => (registeredCommands.set(id, handler), noop),
 };
+/** Commands the host code registered, so the harness can run them. */
+export const registeredCommands = new Map<string, (...args: unknown[]) => unknown>();

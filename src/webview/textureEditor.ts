@@ -87,8 +87,6 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
   const t = target.original;
   const status = h('span', { class: 'muted edit-status' });
   const sizeInfo = h('span', { class: 'muted small' });
-  const inYtd = /\.ytd$/i.test(t.origin ?? '');
-  const kind = (t.origin ?? '').split('.').pop()?.toLowerCase() ?? '';
   /** Space the texture's data occupies; embedded textures can't grow past it. */
   const originalSize = dataSize(t.format, t.width, t.height, t.levels) ?? Infinity;
 
@@ -130,9 +128,7 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
     }
     if (isBlockFormat(s.format) && (s.width % 4 || s.height % 4)) return { ok: false, why: `${s.format} needs a width and height that are multiples of 4.` };
     const size = dataSize(s.format, s.width, s.height, s.levels);
-    if (!inYtd && (size === undefined || size > originalSize)) {
-      return { ok: false, why: `Doesn't fit inside the .${kind}; choose a smaller size, a more compact format or fewer mips (or use a .ytd).` };
-    }
+    if (size === undefined) return { ok: false, why: `${s.format} isn't a format that can be stored here.` };
     return { ok: true };
   };
 
@@ -169,14 +165,9 @@ export function editActions(target: EditTarget, show: (t: TextureData) => void):
       const hh = Math.min(MAX_SIZE, Math.max(4, Math.round(src.height / 4) * 4));
       if (!options.some((o) => o.w === w && o.h === hh)) options.push({ w, h: hh, label: `${w}×${hh} (image size)` });
     }
-    const format = formatSelect.value;
     sizeSelect.replaceChildren(
-      ...options.map((o) => {
-        // Disabled only if it can't fit even without mipmaps.
-        const size = dataSize(format, o.w, o.h, 1);
-        const tooBig = !inYtd && size !== undefined && size > originalSize;
-        return h('option', { value: `${o.w}x${o.h}`, disabled: tooBig }, tooBig ? `${o.label} — too big for this .${kind}` : o.label);
-      })
+      // Any size: models (.ydr/.yft…) grow their texture data when needed, like dictionaries.
+      ...options.map((o) => h('option', { value: `${o.w}x${o.h}` }, o.label))
     );
     sizeSelect.value = selected;
     if (!sizeSelect.value || sizeSelect.selectedOptions[0]?.disabled) {

@@ -363,6 +363,38 @@ export interface ArchetypeRequest {
   dictionary?: string;
 }
 
+/** A vehicle with a mod kit that has (or can have) mod-kit liveries. */
+export interface ModLiveryVehicle {
+  model: string;
+  kit: string;
+  kitId?: number;
+  /** carcols.meta holding the kit (URI and workspace-relative path). */
+  carcols: string;
+  carcolsPath: string;
+  /** Whether the resource's manifest loads that carcols.meta. */
+  carcolsLoaded: boolean;
+  liveries: { modelName: string; label: string; index: number; file?: { uri: string; path: string; encrypted: boolean }; /** Name in game, from the livery resource's AddTextEntry. */ text?: string }[];
+  /** The vehicle's own model is escrow-protected (no 3D preview). */
+  escrowed: boolean;
+  resource?: string;
+  /** Suggested folder for new livery models (a resource of their own). */
+  defaultFolder: string;
+  defaultFolderPath: string;
+  suggestedName: string;
+  /** Workspace images that look like this vehicle's UV template. */
+  uvTemplates: { uri: string; path: string }[];
+}
+
+/** A livery model to start from: a small .yft whose texture is the livery. */
+export interface ModLiveryTemplate {
+  uri: string;
+  path: string;
+  /** The embedded texture that holds the livery (on a vehicle_paint shader's DiffuseSampler2). */
+  texture?: string;
+  size?: string;
+  error?: string;
+}
+
 export type HostToWebview =
   | { type: 'drawables'; file: string; kind: 'drawable' | 'dictionary' | 'fragment'; drawables: DrawableData[] }
   | { type: 'ytyp'; file: string; ytyp: YtypData }
@@ -398,6 +430,15 @@ export type HostToWebview =
   | { type: 'drawableFile'; requestId: number; drawables: DrawableData[]; error?: string }
   | { type: 'textureFile'; requestId: number; textures: TextureData[]; error?: string }
   | { type: 'pickedImage'; requestId: number; name?: string; data?: Uint8Array }
+  | { type: 'modLiveryInit'; vehicles: ModLiveryVehicle[]; templates: ModLiveryTemplate[]; preselect?: string }
+  /** An image for the mod-kit livery panel (picked, loaded, or a followed file that changed). */
+  | { type: 'modLiveryImage'; requestId: number; linkId?: number; purpose: 'artwork' | 'uv'; name?: string; data?: Uint8Array; error?: string }
+  /** A followed image file changed. */
+  | { type: 'modLiveryFollowed'; linkId: number; purpose: 'artwork' | 'uv'; name: string; data: Uint8Array }
+  | { type: 'modLiveryTemplatePicked'; requestId: number; template?: ModLiveryTemplate }
+  | { type: 'modLiveryTexture'; requestId: number; texture?: TextureData; error?: string }
+  | { type: 'modLiveryFolder'; requestId: number; uri?: string; path?: string }
+  | { type: 'modLiveryCreated'; requestId: number; ok: boolean; message?: string; error?: string }
   | { type: 'pickedImages'; requestId: number; files: { name: string; data: Uint8Array }[] }
   /** Result of adding, deleting or renaming textures in a .ytd. */
   | { type: 'ytdEdited'; requestId: number; ok: boolean; cancelled?: boolean; error?: string; file?: string }
@@ -444,7 +485,8 @@ export type HostToWebview =
   /** A followed livery image changed on disk. */
   | { type: 'liveryLinkedImage'; linkId: number; name: string; data: Uint8Array }
   | { type: 'liveryMetaUpdated'; requestId: number; files: { file: string; changed: number; emptied: number }[]; manifest?: string; error?: string }
-  | { type: 'error'; message: string }
+  /** `modLivery`: the file is an escrow-protected vehicle model; offer the mod-kit livery maker. */
+  | { type: 'error'; message: string; modLivery?: boolean }
   | { type: 'status'; message: string };
 
 /** A model picked for adding to a clothing pack. */
@@ -479,6 +521,36 @@ export type WebviewToHost =
   | { type: 'openAsText' }
   /** Opens a file picker for a replacement image (PNG/JPG/DDS...). */
   | { type: 'pickImage'; requestId: number }
+  /** Opens the mod-kit livery maker for this file. */
+  | { type: 'newModLivery' }
+  /** Mod-kit livery panel: pick a template .yft. */
+  | { type: 'modLiveryPickTemplate'; requestId: number }
+  /** Pick an image (optionally following it for changes), or load a workspace one by URI. */
+  | { type: 'modLiveryImage'; requestId: number; purpose: 'artwork' | 'uv'; follow?: boolean; uri?: string }
+  /** Save `data` (PNG) where the user chooses, open it in the image app and follow it as the artwork. */
+  | { type: 'modLiveryEditExternally'; requestId: number; suggestedName: string; data: Uint8Array }
+  | { type: 'modLiveryUnfollow'; linkId: number }
+  /** The livery texture of an existing (readable) livery model. */
+  | { type: 'modLiveryLoadExisting'; requestId: number; uri: string }
+  | { type: 'modLiveryPickFolder'; requestId: number }
+  /** Writes the livery model, its carcols.meta entry and the resource files, after confirmation. */
+  | {
+      type: 'modLiveryCreate';
+      requestId: number;
+      model: string;
+      kit: string;
+      carcols: string;
+      template: string;
+      /** Existing livery model to update instead of adding a new one. */
+      update?: string;
+      modelName: string;
+      labelKey: string;
+      labelText: string;
+      folder: string;
+      width: number;
+      height: number;
+      rgba: Uint8Array;
+    }
   /** Opens a file picker for several images (to add to a .ytd). */
   | { type: 'pickImages'; requestId: number }
   /** Adds and/or deletes textures in the .ytd at `origin`, after confirmation. */

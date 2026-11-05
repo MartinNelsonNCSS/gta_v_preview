@@ -1,13 +1,13 @@
 {
   "name": "gta-v-asset-preview",
   "displayName": "GTA V Asset Preview",
-  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn), ped clothing (.ymt), animations (.ycd) and cloth physics (.yld). Edit vehicle liveries in 3D, build FiveM addon clothing packs, plus a resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
+  "description": "Preview and edit GTA V assets in VS Code: 3D models (.ydr/.ydd/.yft), textures (.ytd), archetypes and MLO interiors (.ytyp), maps (.ymap), collisions (.ybn), ped clothing (.ymt), animations (.ycd) and cloth physics (.yld). Edit vehicle liveries in 3D (texture and mod-kit liveries, including from creators' templates for escrowed vehicles), build FiveM addon clothing packs, plus a resource health check, batch texture optimiser and asset browser. Pure TypeScript \u2014 works on Windows, macOS, Linux and vscode.dev.",
   "icon": "media/icon.png",
   "galleryBanner": {
     "color": "#10141a",
     "theme": "dark"
   },
-  "version": "0.14.0",
+  "version": "0.15.0",
   "publisher": "ncss-ltd",
   "license": "GPL-3.0-only",
   "repository": {
@@ -212,6 +212,12 @@
         "category": "GTA V"
       },
       {
+        "command": "gtaPreview.newModLivery",
+        "title": "New Mod-Kit Livery\u2026",
+        "category": "GTA V",
+        "icon": "$(paintcan)"
+      },
+      {
         "command": "gtaPreview.checkResources",
         "title": "Check Resources",
         "category": "GTA V",
@@ -268,6 +274,11 @@
           "command": "gtaPreview.findUsages",
           "when": "resourceExtname =~ /^\\.(ydr|ydd|yft|ytd|ytyp|ymap|ybn|ymt)$/i",
           "group": "7_modification@92"
+        },
+        {
+          "command": "gtaPreview.newModLivery",
+          "when": "resourceExtname == .yft || resourceFilename =~ /carcols.*\\.meta$/i",
+          "group": "7_modification@93"
         }
       ],
       "view/title": [

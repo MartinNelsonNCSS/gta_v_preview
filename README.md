@@ -123,6 +123,18 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd
   - **Save to `<name>.ytd`** writes the livery into its dictionary (DXT5 with a full mip chain unless it was already in
     another format with alpha), after confirmation, keeping a `.bak`. Liveries found in another vehicle's `.ytd` are
     flagged, since the game only looks in the vehicle's own dictionary (or its parents).
+- **Mod-kit liveries** (**GTA V: New Mod-Kit Livery…**, also on `.yft` and `carcols.meta` files in the Explorer, and
+  on the message shown when you open an escrow-protected vehicle): for vehicles whose liveries are separate models
+  (`VMT_LIVERY_MOD` parts in a `carcols.meta` kit), including escrow-protected packs whose creators publish livery
+  templates (for example ONX's blank livery `.yft` and per-vehicle UV template PNGs).
+  - Pick the vehicle (its kit, from the workspace's `carcols.meta` / `carvariations.meta`), the template livery model,
+    and your artwork. **Follow image…** / **Edit in image app** update the preview each time you save in your image
+    app; the vehicle's UV template is drawn over or under the artwork.
+  - **Create livery** writes a copy of the template with your artwork as its texture (DXT5 with mipmaps, any size) to
+    `stream/<name>.yft` in a resource of its own (with `fxmanifest.lua` and `liveries.lua`, which names it in game with
+    `AddTextEntry`), and adds a `VMT_LIVERY_MOD` entry to the kit, copied from the vehicle's own liveries. Then it
+    switches to **Update**, so further changes rewrite the same model (keeping a `.bak`).
+  - Nothing escrow-protected is read or decrypted: only the creator's unencrypted templates and meta files.
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
@@ -210,13 +222,14 @@ Open the **GTA V** view in the activity bar:
 
 - **FiveM escrow (`FXAP`) files are encrypted** and can't be previewed. The editor says so when you open one.
 - Gen9 / Enhanced-edition (`RSC8`) resources and PSO-format (binary `PSIN`) `.ymt` files aren't supported yet.
-- Textures embedded in `.ydr`/`.ydd`/`.yft` can't grow beyond their current data size; move them to a `.ytd` for
-  that. Encoding to BC7 or 16-bit formats isn't supported (BC7 can be stored from a BC7 `.dds`). Power-of-two sizes are the safest choice for the game.
+- Textures embedded in `.ydr`/`.ydd`/`.yft` can be replaced at any size; if a model's data isn't laid out as expected
+  the editor refuses rather than risk breaking it. Encoding to BC7 or 16-bit formats isn't supported (BC7 can be stored from a BC7 `.dds`). Power-of-two sizes are the safest choice for the game.
 - `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is a flat colour (no
   metallic flakes or pearlescent), and shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
-- Liveries: texture liveries (`_sign_N`) are supported. Mod-kit liveries (`VMT_LIVERY_MOD` parts in `carcols.meta`) are
-  separate models and aren't switched in the livery section; open their `.yft` to edit their textures. Decals are
-  baked into the texture when saved, so they can't be moved afterwards.
+- Liveries: texture liveries (`_sign_N`) are edited in 3D. Mod-kit liveries are made and previewed flat (over the UV
+  template), not on the vehicle in 3D, and aren't switched in the livery section. A new mod-kit livery keeps the
+  template's internal name (the game finds streamed models by file name). Decals are baked into the texture when
+  saved, so they can't be moved afterwards.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.
 - Base-game names that aren't present as files nearby show as `hash_XXXXXXXX`, and base-game models show as boxes.
 - `.ymap` grass instances, occluders and LOD lights are counted but not drawn.
