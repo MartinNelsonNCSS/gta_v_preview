@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0
+
+Vehicle liveries (`.yft`):
+
+- **Livery section**: switch between a vehicle's liveries (`_sign_1`, `_sign_2`, …) on the model, and pick the colour of each paint shader instead of the fixed grey.
+- **Decals**: place images and text on the bodywork in 3D. Click to place, drag to move, Shift/Alt + scroll to resize/rotate, with opacity and depth. **Both sides** mirrors a readable copy onto the other side. Decals are projected onto the model and baked into the livery texture on save.
+- **Symmetry** (on by default): decals go on both sides of the vehicle; near the centreline they snap onto it as one decal across the middle (hold Alt while dragging to stop that).
+- **Quicker decals**: drop an image file on the model to put it right there (hold Shift while dropping in VS Code), or paste one (Ctrl/Cmd + V). Undo / redo (Ctrl/Cmd + Z, Ctrl/Cmd + Shift + Z), Delete to remove, Ctrl/Cmd + D to duplicate, Esc to cancel, Ctrl/Cmd + S to save.
+- **View** buttons (Left, Right, Front, Back, Top) to look straight at a side for placing, and **Hold to compare** to see the livery as saved.
+- **Edit in image app** / **Follow image…**: work on the livery in Photoshop, GIMP etc. and see it on the model each time you save the image.
+- **UV template…**: export the livery's UV layout as a PNG (optionally over the current livery) to paint on.
+- **+ New livery** / **Delete**: add a livery (blank or copied, any size) or remove one (later ones are renumbered); the per-colour livery lists in the `carvariations.meta` files the resource's `fxmanifest.lua` loads are kept in step (new liveries aren't added to colour combinations that pick specific liveries; removing one keeps each list's length).
+- Liveries are now mapped with the model's second UV set, as in game (they could look misplaced before), and saved with a full mip chain.
+- Warnings when a decal falls where the model has no livery space, or when a model's liveries are in another vehicle's `.ytd`.
+
 ## 0.13.0
 
 Clothing pack editor:

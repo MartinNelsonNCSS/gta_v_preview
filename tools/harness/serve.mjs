@@ -52,7 +52,10 @@ createServer(async (req, res) => {
     else if (url.pathname.startsWith('/dist/') || url.pathname.startsWith('/out/')) path = join(repo, url.pathname);
     else if (url.pathname.startsWith('/ext/media/')) path = join(repo, decodeURIComponent(url.pathname.slice(4)));
     if (!path || !(await stat(path)).isFile()) throw new Error('not found');
-    if (req.method === 'HEAD') return res.writeHead(200).end();
+    if (req.method === 'HEAD') {
+      const st = await stat(path);
+      return res.writeHead(200, { 'x-size': String(st.size), 'x-mtime': String(Math.round(st.mtimeMs)) }).end();
+    }
     res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' }).end(await readFile(path));
   } catch {
     res.writeHead(404).end('not found');

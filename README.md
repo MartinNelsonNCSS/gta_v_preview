@@ -96,6 +96,33 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd
   clothing model with its first texture variation, and the body collision shapes the cloth reacts to, placed on a
   faint reference ped. The sidebar lists vertex/triangle/link counts, the bone the cloth is pinned to and the
   collision shapes per bone. In a `.ymt`, drawables with cloth are marked and have an **Open cloth** button.
+- **Vehicle liveries** (`.yft`): vehicles whose paint shaders carry a livery get a **Livery** section in the sidebar.
+  - Switch between the vehicle's liveries (`<name>_sign_1`, `_sign_2`, … in its `.ytd`) and see each on the model, drawn
+    over the paint. Pick the colour of each paint shader (`vehicle_paint1` is usually the primary colour, `paint2` the
+    secondary, `paint3` the livery's base).
+  - **+ Image…** / **+ Text** place a logo, picture, number or name on the bodywork: click where it goes, then drag it
+    around on the model. **Shift + scroll** resizes and **Alt + scroll** rotates it, as do the sliders, along with
+    opacity and depth. **Both sides** paints a mirrored copy on the other side that still reads the right way round.
+    If a decal can't show (the part has no space on the livery texture), the editor says so.
+  - **Symmetry** (on by default) gives every new decal **Both sides**; switching it changes all of the livery's decals.
+    A mirrored decal dragged near the centreline snaps onto it, as one decal across the middle (hold Alt to stop it).
+  - Faster ways in: drop an image file on the model to put it right there (in VS Code, hold Shift while dropping), or
+    paste an image (Ctrl/Cmd + V) and click where it goes.
+  - Keys: Ctrl/Cmd + Z / Ctrl/Cmd + Shift + Z undo and redo decal changes, Delete removes the selected decal,
+    Ctrl/Cmd + D duplicates it, Esc cancels placing, Ctrl/Cmd + S saves.
+  - **View** Left / Right / Front / Back / Top points the camera straight at a side, and **Hold to compare** shows the
+    livery as saved while you hold it.
+  - **Edit in image app** saves the livery (with its decals) as a PNG, opens it in your default image editor and
+    follows it: every time you save it there, the model updates here. **Follow image…** does the same with an
+    image you already have.
+  - **UV template…** exports a PNG showing where each panel of the bodywork falls on the texture, over the current
+    livery or on its own, to paint over.
+  - **+ New livery** adds the next numbered livery to the `.ytd` (blank or as a copy of the current one, at the size
+    you choose). **Delete** removes one and renumbers the later ones so the game still finds them all. Either way,
+    the per-colour livery lists in the vehicle's `carvariations.meta` are kept in step. Only the files the resource's `fxmanifest.lua` declares as `VEHICLE_VARIATION_FILE` are changed, so backups are left alone. A new livery isn't added to colour combinations that pick specific liveries, empty lists are left alone, and when other livery textures on the vehicle share the deleted number the file isn't touched.
+  - **Save to `<name>.ytd`** writes the livery into its dictionary (DXT5 with a full mip chain unless it was already in
+    another format with alpha), after confirmation, keeping a `.bak`. Liveries found in another vehicle's `.ytd` are
+    flagged, since the game only looks in the vehicle's own dictionary (or its parents).
 - **XML files**: `.ytyp`/`.ymap`/`.ymt` files saved as XML show their text with an **Open as text** button.
 - The preview reloads automatically when the file changes on disk (for example when you re-export from Sollumz).
 
@@ -185,8 +212,11 @@ Open the **GTA V** view in the activity bar:
 - Gen9 / Enhanced-edition (`RSC8`) resources and PSO-format (binary `PSIN`) `.ymt` files aren't supported yet.
 - Textures embedded in `.ydr`/`.ydd`/`.yft` can't grow beyond their current data size; move them to a `.ytd` for
   that. Encoding to BC7 or 16-bit formats isn't supported (BC7 can be stored from a BC7 `.dds`). Power-of-two sizes are the safest choice for the game.
-- `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is drawn as neutral grey and
-  shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
+- `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is a flat colour (no
+  metallic flakes or pearlescent), and shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
+- Liveries: texture liveries (`_sign_N`) are supported. Mod-kit liveries (`VMT_LIVERY_MOD` parts in `carcols.meta`) are
+  separate models and aren't switched in the livery section; open their `.yft` to edit their textures. Decals are
+  baked into the texture when saved, so they can't be moved afterwards.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.
 - Base-game names that aren't present as files nearby show as `hash_XXXXXXXX`, and base-game models show as boxes.
 - `.ymap` grass instances, occluders and LOD lights are counted but not drawn.

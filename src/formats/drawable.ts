@@ -193,6 +193,7 @@ const enum Sem {
   Colour0 = 4,
   Colour1 = 5,
   TexCoord0 = 6,
+  TexCoord1 = 7,
 }
 
 const enum CT {
@@ -253,6 +254,12 @@ function readGeometry(r: ResourceReader, ptr: number, shaderIndex: number): Mesh
     uvs = new Float32Array(vertexCount * 2);
     readComponent(view, stride, vertexCount, offsets[Sem.TexCoord0], typeOf(Sem.TexCoord0), 2, uvs);
   }
+  // Second UV set: vehicle paint shaders map their livery (DiffuseSampler2) with it.
+  let uvs2: Float32Array | undefined;
+  if (offsets[Sem.TexCoord1] >= 0) {
+    uvs2 = new Float32Array(vertexCount * 2);
+    readComponent(view, stride, vertexCount, offsets[Sem.TexCoord1], typeOf(Sem.TexCoord1), 2, uvs2);
+  }
   let colors: Uint8Array | undefined;
   if (offsets[Sem.Colour0] >= 0 && typeOf(Sem.Colour0) === CT.Colour) {
     colors = new Uint8Array(vertexCount * 4);
@@ -274,7 +281,7 @@ function readGeometry(r: ResourceReader, ptr: number, shaderIndex: number): Mesh
   const idxView = new DataView(idxBytes.buffer, idxBytes.byteOffset, idxBytes.byteLength);
   for (let i = 0; i < indexCount; i++) indices[i] = idxView.getUint16(i * 2, true);
 
-  return { shaderIndex, positions, normals, uvs, colors, indices };
+  return { shaderIndex, positions, normals, uvs, ...(uvs2 ? { uvs2 } : {}), colors, indices };
 }
 
 function readComponent(

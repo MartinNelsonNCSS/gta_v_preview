@@ -2,6 +2,10 @@ import * as THREE from 'three';
 import type { DrawableData, LodLevel, ShaderData, TextureData } from '../shared/model';
 import { LOD_LEVELS } from '../shared/model';
 import { decodeBc7 } from './bc7';
+import { isLiveryShader, splitLiveryName } from '../formats/livery';
+
+/** Vehicle paint shown until the user picks a colour. */
+export const DEFAULT_PAINT = 0xb4b8be;
 
 export interface RenderOptions {
   textures: boolean;
@@ -26,7 +30,55 @@ export class TextureStore {
   private readonly listeners = new Set<() => void>();
   /** Decals baked over a base colour, keyed by texture name and colour. */
   private readonly baked = new Map<string, THREE.Texture>();
+  /** Colours of vehicle paint shaders, by lower-cased shader name. */
+  private readonly paint = new Map<string, number>();
   showTextures = true;
+
+  paintColour(shader: string): number {
+    return this.paint.get(shader.toLowerCase()) ?? DEFAULT_PAINT;
+  }
+
+  /** Sets the colour shown by every material of paint shader `shader` (e.g. vehicle_paint1). */
+  setPaint(shader: string, colour: number): void {
+    const name = shader.toLowerCase();
+    this.paint.set(name, colour);
+    this.clearBaked();
+    for (const [key, mats] of this.waiting) mats.forEach((m) => m.userData.paintShader === name && this.apply(m, key));
+  }
+
+  /**
+   * Replaces textures already loaded (e.g. after their file was saved),
+   * dropping any preview; new ones are added.
+   */
+  update(list: TextureData[], source: TextureSource): void {
+    for (const data of list) {
+      const key = data.name.toLowerCase();
+      const old = this.textures.get(key);
+      if (old?.preview) old.tex?.dispose();
+      this.originals.get(key)?.tex?.dispose();
+      old?.tex?.dispose();
+      this.originals.delete(key);
+      this.textures.set(key, { tex: toThreeTexture(data), data, source });
+      this.clearBaked(key);
+      this.waiting.get(key)?.forEach((m) => this.apply(m, key));
+    }
+    this.listeners.forEach((l) => l());
+  }
+
+  /** Points a material bound with bind() at another texture. */
+  rebind(material: THREE.MeshStandardMaterial, name: string): void {
+    const old = material.userData.textureName as string | undefined;
+    if (old) this.waiting.get(old)?.delete(material);
+    this.bind(material, name);
+  }
+
+  private clearBaked(key?: string): void {
+    for (const [k, t] of this.baked) {
+      if (key && !k.startsWith(`${key}|`)) continue;
+      t.dispose();
+      this.baked.delete(k);
+    }
+  }
 
   add(list: TextureData[], source: TextureSource): void {
     for (const data of list) {
@@ -64,14 +116,16 @@ export class TextureStore {
     if (!current) return;
     if (data) {
       if (!this.originals.has(key)) this.originals.set(key, current);
+      else current.tex?.dispose(); // an earlier preview
       this.textures.set(key, { tex: toThreeTexture(data), data, source: current.source, preview: true });
     } else {
       const original = this.originals.get(key);
       if (!original) return;
+      current.tex?.dispose();
       this.originals.delete(key);
       this.textures.set(key, original);
     }
-    for (const k of [...this.baked.keys()]) if (k.startsWith(`${key}|`)) this.baked.delete(k);
+    this.clearBaked(key);
     this.waiting.get(key)?.forEach((m) => this.apply(m, key));
     this.listeners.forEach((l) => l());
   }
@@ -132,10 +186,13 @@ export class TextureStore {
   private apply(m: THREE.MeshStandardMaterial, key: string): void {
     const entry = this.textures.get(key);
     let tex = this.showTextures && entry?.tex ? entry.tex : null;
-    if (tex && m.userData.overlayOn !== undefined) tex = this.bakeOver(key, tex, m.userData.overlayOn as number);
+    const paint = m.userData.paintShader ? this.paintColour(m.userData.paintShader as string) : undefined;
+    const overlay = !!m.userData.overlay;
+    if (tex && overlay) tex = this.bakeOver(key, tex, paint ?? (m.userData.fallbackColor as number));
     m.map = tex;
     if (m.userData.emissive) m.emissiveMap = tex;
-    m.color.set(tex ? 0xffffff : m.userData.fallbackColor ?? 0xcccccc);
+    // Paint tints the shader's own diffuse (a detail map); a livery is already baked over the paint.
+    m.color.set(tex ? (paint !== undefined && !overlay ? paint : 0xffffff) : paint ?? m.userData.fallbackColor ?? 0xcccccc);
     m.needsUpdate = true;
   }
 }
@@ -215,10 +272,14 @@ function createMaterial(shader: ShaderData | undefined, index: number, store: Te
     polygonOffsetUnits: blend === 'decal' ? -4 : 0,
   });
   const paint = /^vehicle_paint/i.test(shader?.name ?? '');
-  // Vehicle paint is a solid colour set at runtime; use a neutral grey.
-  m.userData.fallbackColor = paint ? 0xb4b8be : colorFor(shader?.diffuse ?? `shader${index}`);
+  // Vehicle paint is a solid colour set at runtime (see TextureStore.setPaint).
+  m.userData.fallbackColor = paint ? DEFAULT_PAINT : colorFor(shader?.diffuse ?? `shader${index}`);
   m.userData.shaderIndex = index;
-  if (shader?.diffuseIsOverlay) m.userData.overlayOn = m.userData.fallbackColor;
+  if (paint) m.userData.paintShader = shader!.name.toLowerCase();
+  if (shader?.diffuseIsOverlay) m.userData.overlay = true;
+  if (shader && isLiveryShader(shader) && shader.diffuse) {
+    m.userData.liveryPrefix = splitLiveryName(shader.diffuse)?.prefix ?? shader.diffuse;
+  }
   if (paint) {
     m.roughness = 0.35;
     m.metalness = 0.1;
@@ -295,7 +356,10 @@ export function buildDrawable(
         geometry = new THREE.BufferGeometry();
         geometry.setAttribute('position', new THREE.BufferAttribute(mesh.positions, 3));
         if (mesh.normals) geometry.setAttribute('normal', new THREE.BufferAttribute(mesh.normals, 3));
-        if (mesh.uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(mesh.uvs, 2));
+        // Liveries are mapped with the second UV set.
+        const shader = d.shaders[mesh.shaderIndex];
+        const uvs = shader && isLiveryShader(shader) && mesh.uvs2 ? mesh.uvs2 : mesh.uvs;
+        if (uvs) geometry.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
         if (mesh.colors) geometry.setAttribute('color', new THREE.BufferAttribute(mesh.colors, 4, true));
         geometry.setIndex(new THREE.BufferAttribute(mesh.indices, 1));
         if (!mesh.normals) geometry.computeVertexNormals();

@@ -50,6 +50,8 @@ export interface MeshData {
   positions: Float32Array;
   normals?: Float32Array;
   uvs?: Float32Array;
+  /** Second UV set (TexCoord1), where present. */
+  uvs2?: Float32Array;
   /** RGBA, 4 bytes per vertex. */
   colors?: Uint8Array;
   indices: Uint16Array | Uint32Array;
@@ -437,6 +439,11 @@ export type HostToWebview =
   | { type: 'packCandidates'; requestId: number; candidates: PackCandidate[] }
   /** Groups of drawables whose model or texture files are identical. */
   | { type: 'packDuplicates'; requestId: number; groups: { kind: 'model' | 'texture'; ids: string[]; file: string }[] }
+  | { type: 'liveries'; requestId: number; model: string; sets: { prefix: string; origin?: string; textures: TextureData[] }[] }
+  | { type: 'liveryLinkReply'; requestId: number; linkId?: number; path?: string; name?: string; data?: Uint8Array; cancelled?: boolean; error?: string }
+  /** A followed livery image changed on disk. */
+  | { type: 'liveryLinkedImage'; linkId: number; name: string; data: Uint8Array }
+  | { type: 'liveryMetaUpdated'; requestId: number; files: { file: string; changed: number; emptied: number }[]; manifest?: string; error?: string }
   | { type: 'error'; message: string }
   | { type: 'status'; message: string };
 
@@ -481,7 +488,20 @@ export type WebviewToHost =
       origin: string;
       add?: { name: string; width: number; height: number; format: string; levels?: number; rgba?: Uint8Array; encoded?: Uint8Array }[];
       remove?: string[];
+      /** Applied in order, before `remove`. */
+      rename?: { from: string; to: string }[];
+      /** Shown in the confirmation (why the change is being made). */
+      note?: string;
     }
+  /** Every texture `<prefix><n>` of the given livery sets, from the dictionary that has them. */
+  | { type: 'findLiveries'; requestId: number; prefixes: string[]; maxSize?: number }
+  /** Picks an image file to follow as a livery's source (sent again whenever it changes). */
+  | { type: 'liveryLink'; requestId: number; suggestedName: string }
+  /** Saves `data` (a PNG) via a save dialog, opens it in the default image app and follows it. */
+  | { type: 'liveryExport'; requestId: number; suggestedName: string; data: Uint8Array }
+  | { type: 'liveryUnlink'; linkId: number }
+  /** Keeps the model's carvariations.meta livery lists in step after adding or removing a livery. */
+  | { type: 'liveryMeta'; requestId: number; change: import('../formats/livery').LiveryChange }
   /** Asks for a new name for a texture in the .ytd at `origin` and renames it. */
   | { type: 'renameTexture'; requestId: number; origin: string; name: string }
   /** Full-resolution texture from the file at `origin`. */

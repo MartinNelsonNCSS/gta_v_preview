@@ -15,6 +15,7 @@ import { buildCollision } from '../collision';
 import { originName } from '../textureEditor';
 import { checkbox, cutSlider, fmt, h, newRequestId, onHostMessage, pref, select, setPref, vscode } from '../ui';
 import { Viewer } from '../viewer';
+import { LiveryEditor } from '../liveryEditor';
 
 const LOD_LABELS: Record<LodLevel, string> = { high: 'High', med: 'Medium', low: 'Low', vlow: 'Very low' };
 
@@ -89,6 +90,11 @@ export class ModelPanel {
   /** Texture key that replaces the diffuse of variation-driven shaders (ped clothing). */
   private variationKey?: string;
   private offStore: () => void;
+  private readonly livery: LiveryEditor;
+  /** Kept across sidebar re-renders so its controls keep their state. */
+  private readonly liverySection: HTMLElement;
+  private readonly sidebarRest = h('div');
+  private sidebarQueued = false;
 
   constructor(private readonly options: ModelPanelOptions = {}) {
     this.toolbar = h('div', { class: 'toolbar' });
@@ -106,14 +112,23 @@ export class ModelPanel {
     this.store.showTextures = this.opts.textures;
     this.offStore = this.store.onChange(() => {
       this.viewer.requestRender();
-      this.renderSidebar();
+      this.queueSidebar();
     });
+    this.livery = new LiveryEditor({
+      viewer: this.viewer,
+      store: this.store,
+      drawable: () => this.drawable,
+      setStatus: (t) => this.setStatus(t),
+    });
+    this.liverySection = section('Livery', true, this.livery.el);
+    this.sidebar.append(this.liverySection, this.sidebarRest);
   }
 
   setDrawables(drawables: DrawableData[], keepCamera = false): void {
     this.drawables = drawables;
     this.current = Math.min(this.current, Math.max(0, drawables.length - 1));
     for (const d of drawables) this.store.add(d.textures, 'embedded');
+    this.livery.setDrawable(this.drawable);
     this.renderToolbar();
     this.show(!keepCamera);
     // Fetch every referenced texture (not just diffuse) so the sidebar can show them all.
@@ -143,6 +158,7 @@ export class ModelPanel {
 
   dispose(): void {
     this.offStore();
+    this.livery.dispose();
     this.viewer.dispose();
   }
 
@@ -159,7 +175,7 @@ export class ModelPanel {
     }
     this.lod = availableLod(d, this.lod);
     this.store.unbindAll();
-    this.viewer.setContent(buildDrawable(this.withVariation(d), this.lod, this.store, this.opts));
+    this.viewer.setContent(buildDrawable(this.livery.apply(this.withVariation(d)), this.lod, this.store, this.opts));
     this.bounds = boxHelper(d.bbMin, d.bbMax, 0xffc107);
     this.bounds.visible = pref('bounds', false);
     this.viewer.overlay.add(this.bounds);
@@ -169,8 +185,20 @@ export class ModelPanel {
       this.viewer.overlay.add(this.collision);
     }
     if (frame) this.viewer.frame();
+    this.livery.shown();
     this.renderToolbar();
     this.renderSidebar();
+  }
+
+  /** Texture changes come in bursts (searches, live livery previews); redraw the sidebar once they settle. */
+  private queueSidebar(): void {
+    if (this.sidebarQueued) return;
+    this.sidebarQueued = true;
+    setTimeout(() => {
+      this.sidebarQueued = false;
+      this.renderSidebar();
+      this.livery.refreshThumbnails();
+    }, 200);
   }
 
   /** Opens the texture viewer with replace/export actions for texture `key`. */
@@ -202,6 +230,7 @@ export class ModelPanel {
           String(this.current),
           (v) => {
             this.current = Number(v);
+            this.livery.setDrawable(this.drawable);
             this.show(true);
           }
         )
@@ -267,9 +296,11 @@ export class ModelPanel {
   private renderSidebar(): void {
     const d = this.drawable;
     if (!d || this.options.sidebar === false) {
-      this.sidebar.replaceChildren();
+      this.sidebarRest.replaceChildren();
+      this.liverySection.hidden = true;
       return;
     }
+    this.liverySection.hidden = !this.livery.available;
     const size = d.bbMax.map((v, i) => v - d.bbMin[i]);
     const stats = lodStats(d, this.lod);
     const lodRows = LOD_LEVELS.filter((l) => d.lods[l].length).map((l) => {
@@ -355,7 +386,7 @@ export class ModelPanel {
         )
       : null;
 
-    this.sidebar.replaceChildren(...[info, shaders, gallery, bones].filter((x): x is HTMLElement => !!x));
+    this.sidebarRest.replaceChildren(...[info, shaders, gallery, bones].filter((x): x is HTMLElement => !!x));
   }
 }
 

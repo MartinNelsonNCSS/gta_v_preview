@@ -31,6 +31,20 @@ const settle = () => new Promise((r) => setTimeout(r, 50));
     const tex = received.filter((m) => m.type === 'textures');
     const found = tex.flatMap((m) => m.textures.map((t: any) => t.name));
     console.log(`textures: requested ${new Set(names.map((n: string) => n.toLowerCase())).size}, found ${found.length} from [${[...new Set(tex.map((m) => m.source).filter(Boolean))]}], searched ${tex.at(-1).searched}`);
+    // Vehicle liveries: every <prefix><n> texture, and (with LIVERY_META=1, on a copy!) the carvariations.meta update.
+    const prefixes = [...new Set(first.drawables.flatMap((d: any) => d.shaders.filter((s: any) => s.diffuseIsOverlay && /^vehicle_paint/i.test(s.name)).map((s: any) => s.diffuse.replace(/\d+$/, ''))))];
+    if (prefixes.length) {
+      onMessage({ type: 'findLiveries', requestId: 3, prefixes });
+      while (!received.some((m) => m.type === 'liveries')) await settle();
+      const l = received.find((m) => m.type === 'liveries');
+      console.log(`liveries of ${l.model}: ${l.sets.map((s: any) => `${s.prefix}[${s.textures.map((t: any) => t.name).join(', ')}] in ${s.origin?.split('/').pop() ?? '-'}`).join('; ')}`);
+      if (process.env.LIVERY_META) {
+        onMessage({ type: 'liveryMeta', requestId: 4, change: Number(process.env.LIVERY_META) < 0 ? { removed: -Number(process.env.LIVERY_META) } : { added: Number(process.env.LIVERY_META) } });
+        while (!received.some((m) => m.type === 'liveryMetaUpdated')) await settle();
+        const u = received.find((m) => m.type === 'liveryMetaUpdated');
+        console.log('carvariations:', JSON.stringify(u.files), u.manifest ?? '(no manifest)', u.error ?? '');
+      }
+    }
   }
   if (first.type === 'ytyp') {
     const y = first.ytyp;

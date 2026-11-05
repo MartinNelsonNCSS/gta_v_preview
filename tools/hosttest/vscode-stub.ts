@@ -11,6 +11,10 @@ export class Uri {
   toString() { return `${this.scheme}://${this.path}`; }
   get fsPath() { return this.path; }
 }
+export class WorkspaceEdit {
+  edits: { uri: Uri; range: unknown; text: string }[] = [];
+  replace(uri: Uri, range: unknown, text: string) { this.edits.push({ uri, range, text }); }
+}
 export enum FileType { File = 1, Directory = 2 }
 export class RelativePattern { constructor(readonly base: unknown, readonly pattern: string) {} }
 export class EventEmitter<T> {
@@ -45,19 +49,34 @@ export const workspace = {
   fs: {
     readFile: async (u: Uri) => new Uint8Array(await fs.readFile(u.path)),
     writeFile: async (u: Uri, d: Uint8Array) => fs.writeFile(u.path, d),
-    stat: async (u: Uri) => ({ mtime: (await fs.stat(u.path)).mtimeMs }),
+    stat: async (u: Uri) => { const st = await fs.stat(u.path); return { mtime: st.mtimeMs, size: st.size }; },
     readDirectory: async (u: Uri) => (await fs.readdir(u.path, { withFileTypes: true })).map((e) => [e.name, e.isDirectory() ? FileType.Directory : FileType.File] as [string, FileType]),
   },
   getWorkspaceFolder: () => ({ uri: Uri.file(testRoot.path), name: 'test', index: 0 }),
   findFiles: async (glob: string | RelativePattern) => {
-    const files = await walk(testRoot.path);
+    const base = typeof glob !== 'string' && glob.base instanceof Uri ? glob.base.path : testRoot.path;
+    const files = await walk(base);
+    const pattern = typeof glob === 'string' ? glob : glob.pattern;
+    const named = /^\*\*\/([^*{}/]+)$/.exec(pattern)?.[1];
+    if (named) return files.filter((f) => f.toLowerCase().endsWith('/' + named.toLowerCase())).map((f) => Uri.file(f));
     const exts = /\{([^}]+)\}/.exec(typeof glob === 'string' ? glob : glob.pattern)?.[1].split(',') ?? [];
     return files.filter((f) => exts.some((x) => (x.includes('.') ? f.endsWith('/' + x) : f.toLowerCase().endsWith('.' + x)))).map((f) => Uri.file(f));
   },
   getConfiguration: () => ({ get: (_k: string, d: unknown) => d }),
+  openTextDocument: async (u: Uri) => {
+    const text = await fs.readFile(u.path, 'utf8');
+    return { uri: u, getText: () => text, positionAt: (offset: number) => ({ offset }), save: async () => true };
+  },
+  /** Whole-document replacements only (what the host code uses). */
+  applyEdit: async (e: WorkspaceEdit) => {
+    for (const x of e.edits) await fs.writeFile(x.uri.path, x.text);
+    return true;
+  },
+  asRelativePath: (u: Uri) => u.path.slice(testRoot.path.length + 1),
   createFileSystemWatcher: () => ({ onDidChange: () => noop, onDidCreate: () => noop, onDidDelete: () => noop, dispose() {} }),
 };
 export const languages = { createDiagnosticCollection: () => { const m = new Map<string, Diagnostic[]>(); return { set: (u: Uri, d: Diagnostic[]) => m.set(u.toString(), d), clear: () => m.clear(), dispose() {}, entries: m }; } };
+export const env = { openExternal: async () => true };
 export const window = {
   showWarningMessage: async () => undefined,
   showInformationMessage: async () => undefined,

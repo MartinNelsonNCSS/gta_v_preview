@@ -60,7 +60,7 @@ export const workspace = {
       if (isMemory(u)) return { mtime: 0 };
       const res = await fetch(url(u), { method: 'HEAD' });
       if (!res.ok) throw new Error(`not found: ${u.path}`);
-      return { mtime: 0 };
+      return { mtime: Number(res.headers.get('x-mtime') ?? 0), size: Number(res.headers.get('x-size') ?? 0) };
     },
     readDirectory: async (u: Uri) => {
       listing = undefined;
@@ -96,6 +96,7 @@ export const workspace = {
   getConfiguration: () => ({ get: (_k: string, d: unknown) => d }),
   createFileSystemWatcher: () => ({ onDidChange: () => noop, onDidCreate: () => noop, dispose() {} }),
 };
+export const env = { openExternal: async (u: Uri) => (console.info('[openExternal]', u.path), true) };
 export const window = {
   showInformationMessage: async (m: string) => (console.info('[info]', m), undefined),
   withProgress: async <T>(_o: unknown, task: (p: { report(v: unknown): void }) => Promise<T>) => task({ report() {} }),

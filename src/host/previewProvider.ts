@@ -11,6 +11,7 @@ import { parseYcd } from '../formats/ycd';
 import { parseYld } from '../formats/yld';
 import { isPedAnimation } from '../formats/pedSkeleton';
 import { isEncrypted } from '../formats/scan';
+import { updateVariationLiveries } from '../formats/livery';
 import { editYtd, encodeImage, exportDds, NewTexture, readFullTexture, replaceTexture, TextureFileKind, textureNameProblem, YtdEdit } from '../formats/textureEdit';
 import type {
   AnimTarget,
@@ -42,7 +43,7 @@ export const VIEW_TYPES: Record<ViewKind, string> = {
 const META_KINDS: ViewKind[] = ['ytyp', 'ymap', 'ymt'];
 
 /** Texture names per .ytd, keyed by URI and invalidated by mtime. */
-const ytdNameCache = new Map<string, { mtime: number; names: Set<string> }>();
+const ytdNameCache = new Map<string, { mtime: number; size: number; names: Set<string> }>();
 /** Archetype definitions per .ytyp, keyed by URI and invalidated by mtime. */
 const ytypCache = new Map<string, { mtime: number; archetypes: ArchetypeData[] }>();
 
@@ -118,6 +119,9 @@ class PreviewSession {
   private readonly yddCache = new Map<string, Promise<DrawableData[]>>();
   private archetypeIndexPromise?: Promise<Map<number, ArchetypeData>>;
   private disposed = false;
+  /** Image files followed as livery sources. */
+  private readonly links = new Map<number, vscode.Disposable>();
+  private nextLinkId = 1;
 
   constructor(private readonly uri: vscode.Uri, private readonly kind: ViewKind, private readonly panel: vscode.WebviewPanel) {
     this.index = new AssetIndex(uri, config<SearchScope>('assetSearch', 'workspace'));
@@ -140,6 +144,7 @@ class PreviewSession {
   dispose(): void {
     this.disposed = true;
     this.disposables.forEach((d) => d.dispose());
+    this.links.forEach((l) => l.dispose());
   }
 
   private post(message: HostToWebview): void {
@@ -190,6 +195,22 @@ class PreviewSession {
           break;
         case 'saveFile':
           await this.saveFile(message.requestId, message.suggestedName, message.data, message.filterName, message.extensions);
+          break;
+        case 'findLiveries':
+          await this.findLiveries(message.requestId, message.prefixes, message.maxSize);
+          break;
+        case 'liveryLink':
+          await this.liveryLink(message.requestId, message.suggestedName);
+          break;
+        case 'liveryExport':
+          await this.liveryExport(message.requestId, message.suggestedName, message.data);
+          break;
+        case 'liveryUnlink':
+          this.links.get(message.linkId)?.dispose();
+          this.links.delete(message.linkId);
+          break;
+        case 'liveryMeta':
+          await this.liveryMeta(message.requestId, message.change);
           break;
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', this.uri, 'default');
@@ -413,19 +434,10 @@ class PreviewSession {
 
   private async texturesFrom(ytd: AssetFile, wanted: Set<string>, opts: { maxSize: number }): Promise<TextureData[]> {
     try {
-      const key = ytd.uri.toString();
-      const stat = await vscode.workspace.fs.stat(ytd.uri);
-      let entry = ytdNameCache.get(key);
-      let data: Uint8Array | undefined;
-      if (!entry || entry.mtime !== stat.mtime) {
-        data = await vscode.workspace.fs.readFile(ytd.uri);
-        entry = { mtime: stat.mtime, names: new Set(listYtdTextureNames(data).map((n) => n.toLowerCase())) };
-        ytdNameCache.set(key, entry);
-      }
-      const matches = new Set([...wanted].filter((n) => entry!.names.has(n)));
+      const names = await this.ytdNames(ytd);
+      const matches = new Set([...wanted].filter((n) => names?.has(n)));
       if (!matches.size) return [];
-      data ??= await vscode.workspace.fs.readFile(ytd.uri);
-      return tagOrigin(readYtdTextures(data, matches, opts), ytd.uri);
+      return tagOrigin(readYtdTextures(await vscode.workspace.fs.readFile(ytd.uri), matches, opts), ytd.uri);
     } catch {
       return []; // Encrypted or malformed dictionaries are skipped.
     }
@@ -623,17 +635,18 @@ class PreviewSession {
       const parts = [
         add.length && `add ${add.length} texture${add.length === 1 ? '' : 's'} (${list(add.map((t) => `${t.name} ${t.width}×${t.height} ${t.format}`))})`,
         replaced.length && `replace the existing ${list(replaced)}`,
+        m.rename?.length && `rename ${list(m.rename.map((r) => `${r.from} → ${r.to}`))}`,
         m.remove?.length && `delete ${list(m.remove)}`,
       ].filter(Boolean);
       if (!parts.length) return reply({ ok: false, cancelled: true });
       const action = m.remove?.length && !add.length ? 'Delete' : 'Save';
       const choice = await vscode.window.showWarningMessage(
         `${action === 'Delete' ? `Delete ${m.remove!.length} texture${m.remove!.length === 1 ? '' : 's'}` : 'Change textures'} in ${file}?`,
-        { modal: true, detail: `This will ${parts.join('; ')}. The dictionary is rebuilt; the original file is kept as ${file}.bak.` },
+        { modal: true, detail: `${m.note ? `${m.note}\n\n` : ''}This will ${parts.join('; ')}. The dictionary is rebuilt; the original file is kept as ${file}.bak.` },
         action
       );
       if (choice !== action) return reply({ ok: false, cancelled: true });
-      const edit: YtdEdit = { remove: m.remove, add };
+      const edit: YtdEdit = { rename: m.rename, remove: m.remove, add };
       await writeWithBackup(uri, original, editYtd(original, edit));
       reply({ ok: true, file });
     } catch (err) {
@@ -689,6 +702,173 @@ class PreviewSession {
     }
   }
 
+  /**
+   * Finds each livery set's textures: the vehicle's own dictionary first, then
+   * the nearest dictionary that has any `<prefix><n>` texture.
+   */
+  private async findLiveries(requestId: number, prefixes: string[], maxSize?: number): Promise<void> {
+    const opts = { maxSize: Math.min(maxSize ?? Infinity, config('maxTextureSize', 1024)) };
+    const model = vehicleName(this.uri);
+    const ytds = await this.index.byExt('ytd');
+    const ordered = [...ytds.filter((f) => f.base === model), ...ytds.filter((f) => f.base !== model)];
+    const sets: Extract<HostToWebview, { type: 'liveries' }>['sets'] = [];
+    for (const raw of prefixes) {
+      const prefix = raw.toLowerCase();
+      const isLivery = (n: string) => n === prefix || (n.startsWith(prefix) && /^\d+$/.test(n.slice(prefix.length)));
+      let found: { prefix: string; origin?: string; textures: TextureData[] } = { prefix, textures: [] };
+      for (const ytd of ordered.slice(0, MAX_YTD_SCAN)) {
+        if (this.disposed) return;
+        const names = await this.ytdNames(ytd);
+        const wanted = new Set([...(names ?? [])].filter(isLivery));
+        if (!wanted.size) continue;
+        const data = await vscode.workspace.fs.readFile(ytd.uri);
+        found = { prefix, origin: ytd.uri.toString(), textures: tagOrigin(readYtdTextures(data, wanted, opts), ytd.uri) };
+        break;
+      }
+      sets.push(found);
+    }
+    this.post({ type: 'liveries', requestId, model, sets });
+  }
+
+  /** Lower-cased texture names in a dictionary (cached by mtime and size); undefined if unreadable. */
+  private async ytdNames(ytd: AssetFile): Promise<Set<string> | undefined> {
+    try {
+      const key = ytd.uri.toString();
+      const stat = await vscode.workspace.fs.stat(ytd.uri);
+      let entry = ytdNameCache.get(key);
+      if (!entry || entry.mtime !== stat.mtime || entry.size !== stat.size) {
+        const data = await vscode.workspace.fs.readFile(ytd.uri);
+        entry = { mtime: stat.mtime, size: stat.size, names: new Set(listYtdTextureNames(data).map((n) => n.toLowerCase())) };
+        ytdNameCache.set(key, entry);
+      }
+      return entry.names;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Follows an image file, sending its contents to the webview whenever it's saved. */
+  private follow(uri: vscode.Uri): number {
+    const linkId = this.nextLinkId++;
+    const watcher = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(dirname(uri), basename(uri)));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const send = () => {
+      clearTimeout(timer);
+      // Image editors often write in several steps; wait for them to finish.
+      timer = setTimeout(async () => {
+        try {
+          const data = await vscode.workspace.fs.readFile(uri);
+          if (data.length) this.post({ type: 'liveryLinkedImage', linkId, name: basename(uri), data });
+        } catch {
+          // Mid-save; the next change event brings the finished file.
+        }
+      }, 400);
+    };
+    const subs = [watcher.onDidChange(send), watcher.onDidCreate(send)];
+    this.links.set(linkId, { dispose: () => (clearTimeout(timer), subs.forEach((s) => s.dispose()), watcher.dispose()) });
+    return linkId;
+  }
+
+  private async liveryLink(requestId: number, suggestedName: string): Promise<void> {
+    try {
+      const picked = await vscode.window.showOpenDialog({
+        canSelectMany: false,
+        openLabel: 'Follow image',
+        title: `Image to use for ${suggestedName} (updates whenever you save it)`,
+        defaultUri: dirname(this.uri),
+        filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'dds'] },
+      });
+      if (!picked?.[0]) return this.post({ type: 'liveryLinkReply', requestId, cancelled: true });
+      const data = await vscode.workspace.fs.readFile(picked[0]);
+      const linkId = this.follow(picked[0]);
+      this.post({ type: 'liveryLinkReply', requestId, linkId, path: picked[0].fsPath || picked[0].path, name: basename(picked[0]), data });
+    } catch (err) {
+      this.post({ type: 'liveryLinkReply', requestId, error: (err as Error).message });
+    }
+  }
+
+  private async liveryExport(requestId: number, suggestedName: string, data: Uint8Array): Promise<void> {
+    try {
+      const target = await vscode.window.showSaveDialog({
+        title: 'Save the livery as an image to edit',
+        defaultUri: vscode.Uri.joinPath(dirname(this.uri), suggestedName.replace(/[\\/:*?"<>|]/g, '_')),
+        filters: { 'PNG image': ['png'] },
+      });
+      if (!target) return this.post({ type: 'liveryLinkReply', requestId, cancelled: true });
+      await vscode.workspace.fs.writeFile(target, data);
+      const linkId = this.follow(target);
+      this.post({ type: 'liveryLinkReply', requestId, linkId, path: target.fsPath || target.path, name: basename(target) });
+      void vscode.env.openExternal(target);
+    } catch (err) {
+      this.post({ type: 'liveryLinkReply', requestId, error: (err as Error).message });
+    }
+  }
+
+  /** Updates the vehicle's per-colour livery lists in carvariations.meta files near the model. */
+  private async liveryMeta(requestId: number, change: import('../formats/livery').LiveryChange): Promise<void> {
+    const model = vehicleName(this.uri);
+    try {
+      const { metas, manifest } = await this.variationFiles();
+      const files: { file: string; changed: number; emptied: number }[] = [];
+      const edit = new vscode.WorkspaceEdit();
+      const docs: vscode.TextDocument[] = [];
+      for (const uri of metas) {
+        const doc = await vscode.workspace.openTextDocument(uri);
+        const result = updateVariationLiveries(doc.getText(), model, change);
+        if (!result) continue;
+        files.push({ file: vscode.workspace.asRelativePath(uri), changed: result.changed, emptied: result.emptied });
+        if (!result.changed) continue;
+        edit.replace(uri, new vscode.Range(doc.positionAt(0), doc.positionAt(doc.getText().length)), result.text);
+        docs.push(doc);
+      }
+      if (docs.length && (await vscode.workspace.applyEdit(edit))) await Promise.all(docs.map((d) => d.save()));
+      this.post({ type: 'liveryMetaUpdated', requestId, files, ...(manifest ? { manifest: vscode.workspace.asRelativePath(manifest) } : {}) });
+    } catch (err) {
+      this.post({ type: 'liveryMetaUpdated', requestId, files: [], error: (err as Error).message });
+    }
+  }
+
+  /**
+   * The carvariations files the game would load with this model: those its
+   * resource's manifest declares as VEHICLE_VARIATION_FILE (so backups and
+   * copies lying around are left alone). Without a declaration, any
+   * carvariations.meta in the resource; without a manifest, only the model's
+   * own folder (or the one holding its stream folder).
+   */
+  private async variationFiles(): Promise<{ metas: vscode.Uri[]; manifest?: vscode.Uri }> {
+    const find = async (base: vscode.Uri, pattern: string) => vscode.workspace.findFiles(new vscode.RelativePattern(base, pattern), undefined, 50);
+    let dir = dirname(this.uri);
+    for (let i = 0; i < 4 && dir.path.split('/').filter(Boolean).length > 1; i++, dir = dirname(dir)) {
+      for (const name of ['fxmanifest.lua', '__resource.lua']) {
+        const manifest = vscode.Uri.joinPath(dir, name);
+        let text: string;
+        try {
+          text = new TextDecoder().decode(await vscode.workspace.fs.readFile(manifest));
+        } catch {
+          continue;
+        }
+        const declared = declaredFiles(text, 'VEHICLE_VARIATION_FILE');
+        if (!declared.length) return { metas: await find(dir, '**/carvariations.meta'), manifest };
+        const metas = new Map<string, vscode.Uri>();
+        for (const path of declared) {
+          if (/[*?{[]/.test(path)) (await find(dir, path)).forEach((u) => metas.set(u.toString(), u));
+          else {
+            const uri = vscode.Uri.joinPath(dir, path);
+            try {
+              await vscode.workspace.fs.stat(uri);
+              metas.set(uri.toString(), uri);
+            } catch {
+              // Declared but missing: nothing to update.
+            }
+          }
+        }
+        return { metas: [...metas.values()], manifest };
+      }
+    }
+    const folder = dirname(this.uri);
+    return { metas: await find(basename(folder).toLowerCase() === 'stream' ? dirname(folder) : folder, '**/carvariations.meta') };
+  }
+
   private async openAsset(name: string, ext: 'ydr' | 'ydd' | 'yft' | 'ytd' | 'yld'): Promise<void> {
     const hash = nameToHash(name);
     const file = (await this.index.byExt(ext)).find((f) => f.hash === hash);
@@ -699,6 +879,20 @@ class PreviewSession {
     const kind = ({ ydr: 'drawable', ydd: 'dictionary', yft: 'fragment', ytd: 'ytd', yld: 'yld' } as const)[ext];
     await vscode.commands.executeCommand('vscode.openWith', file.uri, VIEW_TYPES[kind]);
   }
+}
+
+// -- liveries ---------------------------------------------------------------------
+
+/** Files a resource manifest declares as `data_file '<kind>' '<path>'` (paths relative to it). */
+export function declaredFiles(manifest: string, kind: string): string[] {
+  const code = manifest.replace(/--\[(=*)\[[\s\S]*?\]\1\]/g, '').replace(/--[^\n]*/g, '');
+  const re = /data_file\s*\(?\s*(['"])([^'"]+)\1\s*\)?\s*\(?\s*(['"])([^'"]+)\3/g;
+  return [...code.matchAll(re)].filter((m) => m[2].toUpperCase() === kind).map((m) => m[4].replace(/^\.?\//, ''));
+}
+
+/** `navaho_hi.yft` → `navaho`: the vehicle a model file belongs to. */
+function vehicleName(uri: vscode.Uri): string {
+  return basename(uri).replace(/\.[^.]+$/, '').replace(/_hi$/i, '').toLowerCase();
 }
 
 /** Writes `updated`, keeping the first original as `<file>.bak` (later saves don't overwrite it). */
