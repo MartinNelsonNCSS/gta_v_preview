@@ -69,7 +69,7 @@ if (optimize) {
 } else if (params.has('modlivery')) {
   // The real mod-kit livery panel (?modlivery or ?modlivery=<path of a .yft/carcols to start from>).
   vsWindow.createWebviewPanel = () => panel;
-  registerModLivery({ extensionUri: Uri.file('/ext') } as never, new WorkspaceIndex());
+  registerModLivery({ extensionUri: Uri.file('/ext'), globalStorageUri: Uri.file(`${ROOT}/.harness-storage`) } as never, new WorkspaceIndex());
   const target = params.get('modlivery');
   void registeredCommands.get('gtaPreview.newModLivery')!(target ? Uri.file(`${ROOT}/${target}`) : undefined);
 } else if (convert) {

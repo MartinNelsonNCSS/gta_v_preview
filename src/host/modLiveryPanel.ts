@@ -8,6 +8,7 @@ import type { HostToWebview, ModLiveryTemplate, ModLiveryVehicle, WebviewToHost 
 import { basename, dirname } from './assetIndex';
 import { webviewHtml } from './previewProvider';
 import { WorkspaceIndex } from './workspaceIndex';
+import { designFile, handleDesignerMessage, resourceDir } from './designerFiles';
 
 /**
  * "GTA V: New Mod-Kit Livery…": makes a livery as its own model (a
@@ -56,7 +57,11 @@ class ModLiveryPanel {
   private readonly links = new Map<number, vscode.Disposable>();
   private nextLinkId = 1;
 
-  constructor(context: vscode.ExtensionContext, private readonly index: WorkspaceIndex, private readonly target?: vscode.Uri) {
+  private readonly draftUri: vscode.Uri;
+  private draftSent = false;
+
+  constructor(private readonly context: vscode.ExtensionContext, private readonly index: WorkspaceIndex, private readonly target?: vscode.Uri) {
+    this.draftUri = vscode.Uri.joinPath(context.globalStorageUri, 'modlivery-draft.json');
     const dist = vscode.Uri.joinPath(context.extensionUri, 'dist');
     this.panel = vscode.window.createWebviewPanel('gtaPreview.modLivery', 'New mod-kit livery', vscode.ViewColumn.Active, {
       enableScripts: true,
@@ -100,7 +105,9 @@ class ModLiveryPanel {
           const data = await vscode.workspace.fs.readFile(vscode.Uri.parse(m.uri));
           const info = inspectLiveryModel(data);
           if (!info.texture) throw new Error(info.error === 'escrow-protected' ? 'It is escrow-protected.' : info.error);
-          this.post({ type: 'modLiveryTexture', requestId: m.requestId, texture: readFullTexture(data, 'yft', info.texture) });
+          const uri = vscode.Uri.parse(m.uri);
+          const design = await vscode.workspace.fs.readFile(designFile(resourceDir(uri), fileBase(uri))).then((d) => new TextDecoder().decode(d), () => undefined);
+          this.post({ type: 'modLiveryTexture', requestId: m.requestId, texture: readFullTexture(data, 'yft', info.texture), ...(design ? { design } : {}) });
         } catch (err) {
           this.post({ type: 'modLiveryTexture', requestId: m.requestId, error: (err as Error).message });
         }
@@ -111,6 +118,22 @@ class ModLiveryPanel {
         this.post({ type: 'modLiveryFolder', requestId: m.requestId, ...(picked?.[0] ? { uri: picked[0].toString(), path: rel(picked[0]) } : {}) });
         break;
       }
+      case 'listFonts':
+      case 'modLiveryPickFont':
+      case 'modLiverySaveFile':
+      case 'modLiveryOpenDesign':
+      case 'designLoad':
+      case 'designStore':
+        await handleDesignerMessage(m, (r) => this.post(r));
+        break;
+      case 'modLiveryDraft':
+        try {
+          await vscode.workspace.fs.createDirectory(this.context.globalStorageUri);
+          await vscode.workspace.fs.writeFile(this.draftUri, new TextEncoder().encode(m.text));
+        } catch {
+          // Drafts are a convenience; ignore storage problems.
+        }
+        break;
       case 'modLiveryCreate':
         await this.create(m);
         break;
@@ -244,10 +267,18 @@ class ModLiveryPanel {
       }
     }
     const target = this.target && fileBase(this.target).replace(/_hi$/, '');
+    // An unsaved design from last time (only when the panel first opens).
+    let draft: string | undefined;
+    if (!this.draftSent) {
+      this.draftSent = true;
+      draft = await vscode.workspace.fs.readFile(this.draftUri).then((d) => new TextDecoder().decode(d), () => undefined);
+      if (draft && !/"layers":\s*\[\s*\{/.test(draft)) draft = undefined;
+    }
     this.post({
       type: 'modLiveryInit',
       vehicles,
       templates,
+      ...(draft ? { draft } : {}),
       ...(preselect ? { preselect } : target && vehicles.some((v) => v.model === target || v.liveries.some((l) => l.modelName.toLowerCase() === target)) ? { preselect: target } : {}),
     });
   }
@@ -316,8 +347,9 @@ class ModLiveryPanel {
       const problem = liveryNameProblem(m.modelName) ?? liveryNameProblem(m.labelKey);
       if (problem) return reply({ ok: false, error: problem });
       const carcolsUri = vscode.Uri.parse(m.carcols);
-      const folder = vscode.Uri.parse(m.folder);
-      const modelUri = m.update ? vscode.Uri.parse(m.update) : vscode.Uri.joinPath(folder, 'stream', `${m.modelName}.yft`);
+      const modelUri = m.update ? vscode.Uri.parse(m.update) : vscode.Uri.joinPath(vscode.Uri.parse(m.folder), 'stream', `${m.modelName}.yft`);
+      // An existing livery keeps its names and design in its own resource.
+      const folder = m.update ? resourceDir(modelUri) : vscode.Uri.parse(m.folder);
       const base = await vscode.workspace.fs.readFile(m.update ? modelUri : vscode.Uri.parse(m.template));
       const info = inspectLiveryModel(base);
       if (!info.texture) return reply({ ok: false, error: `That model can't be used: ${info.error}.` });
@@ -351,6 +383,7 @@ class ModLiveryPanel {
         carcolsNew ? `Add ${m.modelName} to ${m.kit} in ${rel(carcolsUri)} (livery mod ${modIndex})` : '',
         manifestText === undefined ? `Create ${rel(manifestUri)}` : manifestLoadsLabels ? '' : `Add liveries.lua to ${rel(manifestUri)}`,
         labelsOld === labelsNew ? '' : `${labelsOld === undefined ? 'Create' : 'Update'} ${rel(labelsUri)} (in-game name "${m.labelText || m.modelName}")`,
+        m.design ? `Save the editable design to ${rel(designFile(folder, m.modelName))}` : '',
       ].filter(Boolean);
       const choice = await vscode.window.showWarningMessage(
         m.update ? `Update livery ${m.modelName}?` : `Create livery ${m.modelName}?`,
@@ -364,6 +397,13 @@ class ModLiveryPanel {
         if (!(await exists(bak))) await vscode.workspace.fs.copy(modelUri, bak);
       }
       await vscode.workspace.fs.writeFile(modelUri, model);
+      if (m.design) {
+        // The editable design, to reopen later with "Edit".
+        await vscode.workspace.fs.createDirectory(vscode.Uri.joinPath(folder, 'designs'));
+        await vscode.workspace.fs.writeFile(designFile(folder, m.modelName), new TextEncoder().encode(m.design));
+        // The work is saved now, so there's no draft to restore.
+        await vscode.workspace.fs.writeFile(this.draftUri, new TextEncoder().encode('{}')).then(undefined, () => undefined);
+      }
       if (manifestText === undefined) await vscode.workspace.fs.writeFile(manifestUri, new TextEncoder().encode(liveryManifest('Custom vehicle liveries')));
       else if (!manifestLoadsLabels) await vscode.workspace.fs.writeFile(manifestUri, new TextEncoder().encode(`${manifestText.replace(/\s*$/, '')}\n\nclient_script 'liveries.lua'\n`));
       if (labelsOld !== labelsNew) await vscode.workspace.fs.writeFile(labelsUri, new TextEncoder().encode(labelsNew));

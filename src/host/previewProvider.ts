@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { forWebview } from './webviewMessage';
+import { handleDesignerMessage, isDesignerMessage } from './designerFiles';
 import { parseYdd, parseYdr } from '../formats/drawable';
 import { joaat } from '../formats/hash';
 import { listYtdTextureNames, parseYtd, readYtdTextures } from '../formats/ytd';
@@ -96,6 +97,8 @@ export function webviewHtml(webview: vscode.Webview, dist: vscode.Uri, kind: str
     "default-src 'none'",
     `img-src ${webview.cspSource} data: blob:`,
     `style-src ${webview.cspSource} 'unsafe-inline'`,
+    // Font files added to livery designs are loaded from memory.
+    `font-src ${webview.cspSource} data: blob:`,
     `script-src 'nonce-${nonce}'`,
   ].join('; ');
   return `<!DOCTYPE html>
@@ -154,6 +157,7 @@ class PreviewSession {
 
   private async onMessage(message: WebviewToHost): Promise<void> {
     try {
+      if (isDesignerMessage(message)) return void (await handleDesignerMessage(message, (r) => this.post(r)));
       switch (message.type) {
         case 'ready':
           await this.load();
@@ -216,6 +220,14 @@ class PreviewSession {
         case 'newModLivery':
           await vscode.commands.executeCommand('gtaPreview.newModLivery', this.uri);
           break;
+        case 'modLiveryImage': {
+          // The livery designer's images: picked once, or followed for changes (updates arrive as liveryLinkedImage).
+          const picked = await vscode.window.showOpenDialog({ canSelectMany: false, openLabel: message.follow ? 'Follow image' : 'Use image', defaultUri: dirname(this.uri), filters: { Images: ['png', 'jpg', 'jpeg', 'webp', 'bmp', 'gif', 'dds'] } });
+          if (!picked?.[0]) return this.post({ type: 'modLiveryImage', requestId: message.requestId, purpose: message.purpose });
+          const data = await vscode.workspace.fs.readFile(picked[0]);
+          this.post({ type: 'modLiveryImage', requestId: message.requestId, purpose: message.purpose, name: basename(picked[0]), data, ...(message.follow ? { linkId: this.follow(picked[0]) } : {}) });
+          break;
+        }
         case 'openAsText':
           await vscode.commands.executeCommand('vscode.openWith', this.uri, 'default');
           break;

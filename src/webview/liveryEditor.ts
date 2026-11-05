@@ -23,6 +23,8 @@ import { canvasToRgba, decodeImage, resizeCanvas, rgbaCanvas, rgbaToPng } from '
 import { textureCanvas, textureDescription } from './textureCanvas';
 import { originName } from './textureEditor';
 import { h, hostRequest, newRequestId, onHostMessage, pref, setPref, vscode } from './ui';
+import { bytesToDataUrl, Designer } from './design/designer';
+import { Design, emptyDesign, parseDesign } from './design/model';
 import type { Viewer } from './viewer';
 
 /*
@@ -140,7 +142,12 @@ export class LiveryEditor {
     window.addEventListener('keydown', this.onKeyDown);
     document.addEventListener('paste', this.onPaste);
     this.offHost = onHostMessage((m) => {
-      if (m.type === 'liveryLinkedImage') void this.onLinkedImage(m.linkId, m.name, m.data);
+      if (m.type === 'liveryLinkedImage') {
+        // An image followed by the designer, or by a livery edit.
+        const designer = this.designer;
+        if (designer) void bytesToDataUrl(m.name, m.data).then(async (url) => (await designer.updateFollowed(m.linkId, m.name, url)) || this.onLinkedImage(m.linkId, m.name, m.data));
+        else void this.onLinkedImage(m.linkId, m.name, m.data);
+      }
     });
   }
 
@@ -152,6 +159,8 @@ export class LiveryEditor {
     window.removeEventListener('keydown', this.onKeyDown);
     document.removeEventListener('paste', this.onPaste);
     this.offHost();
+    this.designer?.dispose();
+    this.designerOverlay?.remove();
     for (const e of this.edits.values()) if (e.linkId) vscode.postMessage({ type: 'liveryUnlink', linkId: e.linkId });
   }
 
@@ -255,6 +264,7 @@ export class LiveryEditor {
   private choose(key: string): void {
     const s = this.state;
     if (!s) return;
+    if (this.designerOverlay?.isConnected && key !== this.designerKey) this.closeDesigner();
     s.current = key;
     this.selected = undefined;
     this.placing = undefined;
@@ -674,7 +684,7 @@ export class LiveryEditor {
 
   /** Whether keys and pastes are for the livery editor (it's showing, no dialog open, not typing). */
   private wantsInput(target: EventTarget | null): boolean {
-    if (!this.state || !this.el.isConnected || document.querySelector('.lightbox')) return false;
+    if (!this.state || !this.el.isConnected || document.querySelector('.lightbox, .livery-designer-overlay')) return false;
     const t = target as HTMLElement | null;
     if (!t) return true;
     // Text fields keep their own keys; sliders, tick boxes and buttons don't need them.
@@ -775,6 +785,9 @@ export class LiveryEditor {
       return;
     }
     this.history.delete(key);
+    // Keep the editable design with the livery, to reopen it later.
+    const design = this.designs.get(key);
+    if (design) vscode.postMessage({ type: 'designStore', origin: texture.origin!, texture: texture.name, text: JSON.stringify(design) });
     if (e) {
       e.decals = [];
       e.dirty = false;
@@ -794,6 +807,12 @@ export class LiveryEditor {
     if (e?.linkId) vscode.postMessage({ type: 'liveryUnlink', linkId: e.linkId });
     this.edits.delete(s.current);
     this.history.delete(s.current);
+    // Unsaved design changes go too; the saved design (if any) is reopened next time.
+    this.designs.delete(s.current);
+    if (this.designerKey === s.current) {
+      this.closeDesigner();
+      this.designerKey = undefined;
+    }
     this.selected = undefined;
     this.placing = undefined;
     this.host.store.setPreview(s.current, undefined);
@@ -982,6 +1001,175 @@ export class LiveryEditor {
     this.host.setStatus(done + meta);
   }
 
+  // -- designer ---------------------------------------------------------------------
+
+  private designer?: Designer;
+  private designerOverlay?: HTMLElement;
+  private readonly designerTitle = h('strong');
+  /** Livery shown in the designer. */
+  private designerKey?: string;
+  /** Designs per livery (unsaved ones too), by livery key. */
+  private readonly designs = new Map<string, Design>();
+  private designTimer?: ReturnType<typeof setTimeout>;
+  private designerWide = false;
+  /** Loading a design into the designer isn't a change to the livery. */
+  private designLoading = false;
+
+  /** Opens the vector designer for the current livery, docked beside the model. */
+  private async openDesigner(): Promise<void> {
+    const s = this.state;
+    const key = s?.current;
+    const info = key ? this.host.store.original(key) : undefined;
+    if (!s || !key || !info?.origin) return;
+    if (!this.designer) {
+      this.designer = new Designer({
+        pickImage: async (follow) => {
+          const r = await hostRequest({ type: 'modLiveryImage', requestId: newRequestId(), purpose: 'artwork', follow }, 'modLiveryImage');
+          return r.data && r.name ? { name: r.name, data: r.data, ...(r.linkId ? { linkId: r.linkId } : {}) } : undefined;
+        },
+        pickFont: async () => {
+          const r = await hostRequest({ type: 'modLiveryPickFont', requestId: newRequestId() }, 'modLiveryFont');
+          return r.data && r.name ? { name: r.name, data: r.data } : undefined;
+        },
+        listFonts: async () => (await hostRequest({ type: 'listFonts', requestId: newRequestId() }, 'fontList')).families,
+        changed: () => this.designChanged(),
+        status: (text) => this.host.setStatus(text),
+      });
+    }
+    const d = this.designer;
+    // The livery's own UV layout as the template.
+    const template = document.createElement('canvas');
+    template.width = template.height = 2048;
+    drawUvLayout(template.getContext('2d')!, 2048, this.meshes(), '#00e5ff', false);
+    d.setTemplate(template);
+    if (this.designerKey !== key) {
+      this.designerKey = key;
+      this.designLoading = true;
+      const known = this.designs.get(key);
+      if (known) await d.load(known);
+      else {
+        const saved = await hostRequest({ type: 'designLoad', requestId: newRequestId(), origin: info.origin, texture: info.name }, 'designText');
+        if (saved.text) {
+          await d.load(parseDesign(saved.text));
+          this.host.setStatus(`Opened the saved design (${saved.path}).`);
+        } else {
+          // Start from the livery as it is: a locked bottom layer to paint over.
+          const composed = await this.composeFull(key, this.edits.get(key));
+          await d.load(emptyDesign());
+          if (composed) {
+            await d.addImage(`${info.name} (current)`, rgbaCanvas(new Uint8Array(composed.image.data), composed.image.width, composed.image.height), { fill: true, locked: true, bottom: true });
+          }
+        }
+      }
+      clearTimeout(this.designTimer);
+      this.designLoading = false;
+    }
+    this.designerTitle.textContent = `Design · ${info.name}`;
+    if (!this.designerOverlay) {
+      const save = async (kind: 'png' | 'design') => {
+        const name = this.state?.current ?? 'livery';
+        const data =
+          kind === 'png'
+            ? await (async () => {
+                const t = this.host.store.original(this.designerKey ?? '');
+                const size = Math.max(t?.width ?? 2048, t?.height ?? 2048);
+                return rgbaToPng(canvasToRgba(d.rasterize(size)), size, size);
+              })()
+            : new TextEncoder().encode(JSON.stringify(d.design, null, 1));
+        const reply = await hostRequest({ type: 'modLiverySaveFile', requestId: newRequestId(), suggestedName: kind === 'png' ? `${name}.png` : `${name}.livery.json`, data, kind }, 'modLiverySaved');
+        if (reply.path) this.host.setStatus(`Saved ${reply.path}.`);
+      };
+      const open = async () => {
+        const reply = await hostRequest({ type: 'modLiveryOpenDesign', requestId: newRequestId() }, 'modLiveryDesign');
+        if (!reply.text) return reply.error && this.host.setStatus(`Couldn't open the design: ${reply.error}`);
+        await d.load(parseDesign(reply.text));
+        this.designChanged();
+      };
+      const wide = h('button', { class: 'chip mini', title: 'Make the designer wider or narrower (the model stays visible beside it)' }, '⇔');
+      wide.addEventListener('click', () => {
+        this.designerWide = !this.designerWide;
+        this.designerOverlay?.classList.toggle('wide', this.designerWide);
+        this.centreModel();
+      });
+      this.designerOverlay = h(
+        'div',
+        { class: 'livery-designer-overlay' },
+        h(
+          'div',
+          { class: 'livery-designer-header' },
+          this.designerTitle,
+          h('span', { class: 'muted small' }, 'Changes show on the model as you work; save with "Save to …ytd" in the sidebar.'),
+          h('span', { class: 'spacer' }),
+          h('button', { class: 'chip mini', onclick: () => void open() }, 'Open design…'),
+          h('button', { class: 'chip mini', onclick: () => void save('design') }, 'Save design…'),
+          h('button', { class: 'chip mini', onclick: () => void save('png') }, 'Export PNG…'),
+          wide,
+          h('button', { class: 'chip active', onclick: () => this.closeDesigner() }, 'Done')
+        ),
+        d.el
+      );
+    }
+    document.body.append(this.designerOverlay);
+    d.requestDraw();
+    this.centreModel();
+    window.addEventListener('resize', this.onResize);
+  }
+
+  private readonly onResize = () => this.centreModel();
+
+  /** Shifts the 3D view so the model sits in the part the designer doesn't cover. */
+  private centreModel(): void {
+    const viewer = this.host.viewer;
+    const canvas = viewer.renderer.domElement;
+    const r = canvas.getBoundingClientRect();
+    const open = this.designerOverlay?.isConnected;
+    if (open && r.width > 0) {
+      const covered = Math.max(0, Math.min(r.right, this.designerOverlay!.getBoundingClientRect().right) - r.left);
+      const shift = covered / 2;
+      viewer.camera.setViewOffset(r.width, r.height, -shift, 0, r.width, r.height);
+    } else viewer.camera.clearViewOffset();
+    viewer.camera.updateProjectionMatrix();
+    viewer.requestRender();
+  }
+
+  private closeDesigner(): void {
+    this.designerOverlay?.remove();
+    window.removeEventListener('resize', this.onResize);
+    this.centreModel();
+    this.render();
+  }
+
+  /** The design changed: show it on the model (it becomes the livery's base image). */
+  private designChanged(): void {
+    if (this.designLoading) return;
+    clearTimeout(this.designTimer);
+    this.designTimer = setTimeout(() => {
+      const key = this.designerKey;
+      const d = this.designer;
+      const info = key ? this.host.store.original(key) : undefined;
+      if (!key || !d || !info) return;
+      const size = Math.max(info.width, info.height);
+      const raster = d.rasterize(size);
+      const canvas = info.width === info.height ? raster : resizeCanvas(raster, info.width, info.height);
+      const e = this.edit(key);
+      e.base = { canvas, name: 'Livery design' };
+      e.dirty = true;
+      this.designs.set(key, d.design);
+      this.schedulePreview();
+      this.refreshThumbnails();
+      this.renderSaveState();
+    }, 200);
+  }
+
+  /** Updates the Save / Discard buttons without rebuilding the section. */
+  private renderSaveState(): void {
+    const save = this.el.querySelector<HTMLButtonElement>('.livery-save .chip.active');
+    const discard = this.el.querySelector<HTMLButtonElement>('.livery-save .chip:not(.active)');
+    const dirty = !!this.currentEdit?.dirty;
+    if (save) save.disabled = !dirty;
+    if (discard) discard.disabled = !this.currentEdit;
+  }
+
   // -- UV template ------------------------------------------------------------------
 
   private async templateDialog(): Promise<void> {
@@ -1166,6 +1354,7 @@ export class LiveryEditor {
       h(
         'div',
         { class: 'row' },
+        h('button', { class: 'chip active', title: 'Paint this livery in the vector designer, beside the model (it updates live)', disabled: !info?.origin, onclick: () => void this.openDesigner() }, 'Design…'),
         h('button', { class: 'chip', title: 'Export a guide showing where each panel falls on the texture', onclick: () => void this.templateDialog() }, 'UV template…'),
         h('button', { class: 'chip', title: 'Save as PNG, open it in your image app and update the model whenever you save it there', disabled: !info?.origin, onclick: () => void this.editExternally() }, 'Edit in image app'),
         h('button', { class: 'chip', title: 'Use an image file as this livery, updating whenever the file is saved', disabled: !info?.origin, onclick: () => void this.linkImage() }, 'Follow image…')

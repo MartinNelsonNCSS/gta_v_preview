@@ -76,7 +76,7 @@ onHostMessage((m: HostToWebview) => {
       break;
     case 'modLiveryInit':
       if (modLivery) modLivery.update(m.vehicles, m.templates, m.preselect);
-      else show((modLivery = modLiveryView(m.vehicles, m.templates, m.preselect)).el);
+      else show((modLivery = modLiveryView(m.vehicles, m.templates, m.preselect, m.draft)).el);
       break;
     case 'error':
       if (!app.firstChild || app.querySelector('.loading')) show(errorView(m.message, m.modLivery));

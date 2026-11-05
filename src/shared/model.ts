@@ -430,13 +430,20 @@ export type HostToWebview =
   | { type: 'drawableFile'; requestId: number; drawables: DrawableData[]; error?: string }
   | { type: 'textureFile'; requestId: number; textures: TextureData[]; error?: string }
   | { type: 'pickedImage'; requestId: number; name?: string; data?: Uint8Array }
-  | { type: 'modLiveryInit'; vehicles: ModLiveryVehicle[]; templates: ModLiveryTemplate[]; preselect?: string }
+  | { type: 'modLiveryInit'; vehicles: ModLiveryVehicle[]; templates: ModLiveryTemplate[]; preselect?: string; /** An unsaved design from last time. */ draft?: string }
+  | { type: 'modLiveryFont'; requestId: number; name?: string; data?: Uint8Array }
+  /** The computer's installed font families. */
+  | { type: 'fontList'; requestId: number; families: string[] }
+  /** The saved design of a texture livery, if any. */
+  | { type: 'designText'; requestId: number; text?: string; path?: string }
+  | { type: 'modLiverySaved'; requestId: number; path?: string }
+  | { type: 'modLiveryDesign'; requestId: number; name?: string; text?: string; error?: string }
   /** An image for the mod-kit livery panel (picked, loaded, or a followed file that changed). */
   | { type: 'modLiveryImage'; requestId: number; linkId?: number; purpose: 'artwork' | 'uv'; name?: string; data?: Uint8Array; error?: string }
   /** A followed image file changed. */
   | { type: 'modLiveryFollowed'; linkId: number; purpose: 'artwork' | 'uv'; name: string; data: Uint8Array }
   | { type: 'modLiveryTemplatePicked'; requestId: number; template?: ModLiveryTemplate }
-  | { type: 'modLiveryTexture'; requestId: number; texture?: TextureData; error?: string }
+  | { type: 'modLiveryTexture'; requestId: number; texture?: TextureData; /** Its saved design (.livery.json), if any. */ design?: string; error?: string }
   | { type: 'modLiveryFolder'; requestId: number; uri?: string; path?: string }
   | { type: 'modLiveryCreated'; requestId: number; ok: boolean; message?: string; error?: string }
   | { type: 'pickedImages'; requestId: number; files: { name: string; data: Uint8Array }[] }
@@ -530,6 +537,16 @@ export type WebviewToHost =
   /** Save `data` (PNG) where the user chooses, open it in the image app and follow it as the artwork. */
   | { type: 'modLiveryEditExternally'; requestId: number; suggestedName: string; data: Uint8Array }
   | { type: 'modLiveryUnfollow'; linkId: number }
+  | { type: 'modLiveryPickFont'; requestId: number }
+  | { type: 'listFonts'; requestId: number }
+  /** The design kept for texture `texture` of the dictionary at `origin`. */
+  | { type: 'designLoad'; requestId: number; origin: string; texture: string }
+  | { type: 'designStore'; origin: string; texture: string; text: string }
+  /** Save a PNG or a design where the user chooses. */
+  | { type: 'modLiverySaveFile'; requestId: number; suggestedName: string; data: Uint8Array; kind: 'png' | 'design' }
+  | { type: 'modLiveryOpenDesign'; requestId: number }
+  /** The design so far, kept so closing the panel doesn't lose it. */
+  | { type: 'modLiveryDraft'; text: string }
   /** The livery texture of an existing (readable) livery model. */
   | { type: 'modLiveryLoadExisting'; requestId: number; uri: string }
   | { type: 'modLiveryPickFolder'; requestId: number }
@@ -550,6 +567,8 @@ export type WebviewToHost =
       width: number;
       height: number;
       rgba: Uint8Array;
+      /** The editable design (.livery.json), saved next to the livery. */
+      design?: string;
     }
   /** Opens a file picker for several images (to add to a .ytd). */
   | { type: 'pickImages'; requestId: number }

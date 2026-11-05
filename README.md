@@ -112,6 +112,9 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd
     Ctrl/Cmd + D duplicates it, Esc cancels placing, Ctrl/Cmd + S saves.
   - **View** Left / Right / Front / Back / Top points the camera straight at a side, and **Hold to compare** shows the
     livery as saved while you hold it.
+  - **Design…** opens the vector livery designer (see *Mod-kit liveries* below for what it can do) docked beside the
+    model, over the livery's own UV layout: the model updates as you draw. Save with **Save to `<name>.ytd`**; the
+    editable design is kept as `designs/<texture>.livery.json` in the resource (outside `stream/`) and reopens next time.
   - **Edit in image app** saves the livery (with its decals) as a PNG, opens it in your default image editor and
     follows it: every time you save it there, the model updates here. **Follow image…** does the same with an
     image you already have.
@@ -127,9 +130,23 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd
   on the message shown when you open an escrow-protected vehicle): for vehicles whose liveries are separate models
   (`VMT_LIVERY_MOD` parts in a `carcols.meta` kit), including escrow-protected packs whose creators publish livery
   templates (for example ONX's blank livery `.yft` and per-vehicle UV template PNGs).
-  - Pick the vehicle (its kit, from the workspace's `carcols.meta` / `carvariations.meta`), the template livery model,
-    and your artwork. **Follow image…** / **Edit in image app** update the preview each time you save in your image
-    app; the vehicle's UV template is drawn over or under the artwork.
+  - Pick the vehicle (its kit, from the workspace's `carcols.meta` / `carvariations.meta`) and the template livery
+    model, then design the livery in the built-in **vector designer**, over (or under) the vehicle's UV template:
+    - Tools: select, rectangle, ellipse, star/polygon, line, pen (Bézier curves, with point editing), brush
+      (smoothed vector strokes) and text, plus images (logos, badges; or a file that updates each time you save it
+      in your image app).
+    - Text: any installed font (read from the system's font folders; the picker shows each in its own typeface, with
+      search) or a `.ttf`/`.otf`/`.woff` you add (it's stored in the design); weight, italic, letter spacing, line
+      height, alignment, stretch, text on an arc, and text along any path you draw (select the text and the path,
+      **Put text on path**; reshape the path afterwards, set where the text starts, or flip it to the other side).
+    - Fills: solid colours with opacity, linear and radial gradients, checker (Battenburg) and stripes; outlines
+      (width, corners, ends, dashes, behind the fill) and drop shadows.
+    - Layers: reorder by dragging, show/hide, lock, rename, opacity, blend modes, clipping to the layer below
+      (stripes inside a shape), and groups (Ctrl/⌘ G; Ctrl/⌘ Shift G to ungroup). Several layers or a group can be
+      resized and rotated together. Snapping to the canvas centre and other layers, align tools, flip and mirrored
+      copies, undo/redo, copy/paste and keyboard shortcuts.
+    - The design is kept editable as `designs/<name>.livery.json` next to the livery (and as a draft while you
+      work), so **Edit** reopens it as layers. **Export PNG…** and **Save/Open design…** are in the settings.
   - **Create livery** writes a copy of the template with your artwork as its texture (DXT5 with mipmaps, any size) to
     `stream/<name>.yft` in a resource of its own (with `fxmanifest.lua` and `liveries.lua`, which names it in game with
     `AddTextEntry`), and adds a `VMT_LIVERY_MOD` entry to the kit, copied from the vehicle's own liveries. Then it
@@ -226,8 +243,9 @@ Open the **GTA V** view in the activity bar:
   the editor refuses rather than risk breaking it. Encoding to BC7 or 16-bit formats isn't supported (BC7 can be stored from a BC7 `.dds`). Power-of-two sizes are the safest choice for the game.
 - `.yft`: fragment physics (per-part collision, breakable children) isn't shown. Vehicle paint is a flat colour (no
   metallic flakes or pearlescent), and shared vehicle textures (`vehshare.ytd`) are base-game files, so they're usually missing.
-- Liveries: texture liveries (`_sign_N`) are edited in 3D. Mod-kit liveries are made and previewed flat (over the UV
-  template), not on the vehicle in 3D, and aren't switched in the livery section. A new mod-kit livery keeps the
+- Liveries: mod-kit liveries are designed flat (over the creator's UV template) and not previewed on the vehicle in
+  3D (escrow-protected vehicles can't be shown, and how the game maps a livery model's texture onto an unprotected
+  vehicle isn't documented), and they aren't switched in the livery section. A new mod-kit livery keeps the
   template's internal name (the game finds streamed models by file name). Decals are baked into the texture when
   saved, so they can't be moved afterwards.
 - Only the diffuse texture is used for shading. Normal and specular maps are listed and viewable but not rendered.

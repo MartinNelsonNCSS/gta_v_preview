@@ -2,6 +2,7 @@
 import * as vscode from 'vscode';
 import { writeFileSync } from 'fs';
 import { forWebview } from '../../src/host/webviewMessage';
+import { systemFonts } from '../../src/host/systemFonts';
 
 export async function run(): Promise<void> {
   const results: { name: string; ok: boolean; detail?: string }[] = [];
@@ -93,6 +94,12 @@ export async function run(): Promise<void> {
     const fixed = forWebview({ data: raw }).data;
     if (fixed.constructor !== Uint8Array || fixed.length !== raw.length) throw new Error('not converted');
     return `readFile returns ${raw.constructor.name}; as JSON it starts ${rawJson}; sent as ${fixed.constructor.name}`;
+  });
+  await check('installed fonts are listed', async () => {
+    const t0 = Date.now();
+    const fonts = await systemFonts();
+    if (!fonts.length) throw new Error('no fonts found');
+    return `${fonts.length} families in ${Date.now() - t0} ms, e.g. ${fonts.slice(0, 5).join(', ')}`;
   });
   await check('New mod-kit livery panel', async () => {
     await vscode.commands.executeCommand('gtaPreview.newModLivery');

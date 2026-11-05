@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.16.0
+
+- **Livery designer**: a vector editor for livery textures, in the mod-kit livery panel (over the creator's UV template) and for texture liveries (**Design…** in the Livery section, docked beside the model, which updates live as you draw, over the livery's own UV layout).
+  - Shapes (rectangles with rounded corners, ellipses, stars/polygons, lines), a pen tool with Bézier curves and point editing, smoothed brush strokes, text and image layers.
+  - Text in any installed font (read from the system's font folders) or an added font file (stored in the design), with weight, italic, spacing, line height, alignment, stretch, text on an arc and text along any path.
+  - Solid colours with opacity, linear/radial gradients, checker (Battenburg) and stripe fills, outlines (also behind the fill) and drop shadows.
+  - Layers with opacity, blend modes, clipping masks, groups, lock/hide, drag to reorder; several layers or a group resize and rotate together; move/resize/rotate handles with snapping and guides, align, flip and mirrored copies, undo/redo, copy/paste and shortcuts.
+  - Designs are saved as editable `designs/<name>.livery.json` in the livery's resource (and as a draft while you work in the mod-kit panel) and reopen as layers. Export PNG, save and open designs.
+- Fixed: updating an existing mod-kit livery wrote its in-game name to the default livery folder instead of the livery's own resource.
+
 ## 0.15.1
 
 - Fixed: images and files read from disk reached the editor as unreadable data in desktop VS Code ("e.slice is not a function"), which broke the mod-kit livery maker's UV template and artwork, livery **Follow image…** / decal images, texture **Replace…** and adding images to a `.ytd`. VS Code sends Node buffers as JSON objects, so they're now converted to plain byte arrays first.

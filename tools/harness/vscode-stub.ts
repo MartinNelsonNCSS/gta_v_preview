@@ -136,7 +136,9 @@ export const workspace = {
   },
   findFiles: async (glob: string | RelativePattern, exclude?: string, max?: number) => {
     listing = undefined;
-    const base = typeof glob === 'string' ? ROOT : (glob.base as Uri).path;
+    // A RelativePattern's base is a Uri, a workspace folder ({ uri }) or a path.
+    const b = typeof glob === 'string' ? undefined : (glob.base as Uri | { uri: Uri } | string);
+    const base = !b ? ROOT : typeof b === 'string' ? b : 'uri' in b ? b.uri.path : b.path;
     const pattern = globRegex(typeof glob === 'string' ? glob : glob.pattern);
     const skip = exclude ? globRegex(exclude) : undefined;
     const found = (await list())
@@ -159,6 +161,7 @@ export const workspace = {
   getConfiguration: () => ({ get: (_k: string, d: unknown) => d }),
   createFileSystemWatcher: () => ({ onDidChange: () => noop, onDidCreate: () => noop, onDidDelete: () => noop, dispose() {} }),
 };
+(workspace.fs as Record<string, unknown>).createDirectory = async () => undefined;
 (workspace.fs as Record<string, unknown>).copy = async (a: Uri, b: Uri) => workspace.fs.writeFile(b, await workspace.fs.readFile(a));
 export const env = { openExternal: async (u: Uri) => (console.info('[openExternal]', u.path), true) };
 export const window = {
