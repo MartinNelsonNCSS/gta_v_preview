@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { forWebview } from './webviewMessage';
 import { parseYdd, parseYdr } from '../formats/drawable';
 import { parseYft } from '../formats/yft';
 import { parseYtd } from '../formats/ytd';
@@ -201,7 +202,7 @@ class PackSession {
   }
 
   private post(m: HostToWebview): void {
-    void this.panel.webview.postMessage(m);
+    void this.panel.webview.postMessage(forWebview(m));
   }
 
   /** A project-relative path (or a bundled `@reserved/…` placeholder) as a URI. */

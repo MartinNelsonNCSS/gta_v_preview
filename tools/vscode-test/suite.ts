@@ -1,6 +1,7 @@
 /* Runs inside a real VS Code extension host (see run.mjs). Writes results to $GTA_TEST_OUT. */
 import * as vscode from 'vscode';
 import { writeFileSync } from 'fs';
+import { forWebview } from '../../src/host/webviewMessage';
 
 export async function run(): Promise<void> {
   const results: { name: string; ok: boolean; detail?: string }[] = [];
@@ -23,7 +24,7 @@ export async function run(): Promise<void> {
   await check('commands registered', async () => {
     const all = await vscode.commands.getCommands(true);
     const ours = all.filter((c) => c.startsWith('gtaPreview.'));
-    for (const c of ['gtaPreview.newClothPack', 'gtaPreview.importClothPack', 'gtaPreview.checkResources', 'gtaPreview.optimizeTextures', 'gtaPreview.findAsset', 'gtaPreview.findUsages', 'gtaPreview.convertToDds', 'gtaPreview.refreshAssets']) {
+    for (const c of ['gtaPreview.newClothPack', 'gtaPreview.importClothPack', 'gtaPreview.checkResources', 'gtaPreview.optimizeTextures', 'gtaPreview.findAsset', 'gtaPreview.findUsages', 'gtaPreview.convertToDds', 'gtaPreview.refreshAssets', 'gtaPreview.newModLivery']) {
       if (!ours.includes(c)) throw new Error(`missing ${c}`);
     }
     return ours.join(', ');
@@ -82,6 +83,23 @@ export async function run(): Promise<void> {
     const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs.map((t) => t.label));
     if (!tabs.some((t) => t.startsWith('Optimize textures'))) throw new Error(`tabs: ${tabs}`);
     return tabs.find((t) => t.startsWith('Optimize textures'));
+  });
+  await check('file bytes survive webview messages', async () => {
+    const [file] = await vscode.workspace.findFiles('**/*.{ytd,yft,png}', '**/node_modules/**', 1);
+    if (!file) return 'skipped (no file)';
+    const raw = await vscode.workspace.fs.readFile(file);
+    // VS Code serializes messages with JSON.stringify; a Buffer's toJSON runs before its typed-array handling.
+    const rawJson = JSON.stringify({ data: raw }).slice(0, 30);
+    const fixed = forWebview({ data: raw }).data;
+    if (fixed.constructor !== Uint8Array || fixed.length !== raw.length) throw new Error('not converted');
+    return `readFile returns ${raw.constructor.name}; as JSON it starts ${rawJson}; sent as ${fixed.constructor.name}`;
+  });
+  await check('New mod-kit livery panel', async () => {
+    await vscode.commands.executeCommand('gtaPreview.newModLivery');
+    await sleep(1500);
+    const tabs = vscode.window.tabGroups.all.flatMap((g) => g.tabs.map((t) => t.label));
+    if (!tabs.includes('New mod-kit livery')) throw new Error(`tabs: ${tabs}`);
+    return 'opened';
   });
   writeFileSync(process.env.GTA_TEST_OUT!, JSON.stringify(results, null, 2));
 }

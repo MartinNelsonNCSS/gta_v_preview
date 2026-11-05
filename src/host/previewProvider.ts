@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { forWebview } from './webviewMessage';
 import { parseYdd, parseYdr } from '../formats/drawable';
 import { joaat } from '../formats/hash';
 import { listYtdTextureNames, parseYtd, readYtdTextures } from '../formats/ytd';
@@ -148,7 +149,7 @@ class PreviewSession {
   }
 
   private post(message: HostToWebview): void {
-    if (!this.disposed) void this.panel.webview.postMessage(message);
+    if (!this.disposed) void this.panel.webview.postMessage(forWebview(message));
   }
 
   private async onMessage(message: WebviewToHost): Promise<void> {

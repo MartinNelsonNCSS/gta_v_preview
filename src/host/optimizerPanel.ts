@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { forWebview } from './webviewMessage';
 import { optimizeYtd } from '../formats/optimize';
 import type { HostToWebview, WebviewToHost } from '../shared/model';
 import { basename } from './assetIndex';
@@ -45,7 +46,7 @@ class OptimizerPanel {
   }
 
   private post(m: HostToWebview): void {
-    void this.panel.webview.postMessage(m);
+    void this.panel.webview.postMessage(forWebview(m));
   }
 
   private async onMessage(m: WebviewToHost): Promise<void> {

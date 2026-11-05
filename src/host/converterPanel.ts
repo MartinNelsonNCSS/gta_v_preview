@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { forWebview } from './webviewMessage';
 import type { HostToWebview, WebviewToHost } from '../shared/model';
 import { basename, dirname } from './assetIndex';
 import { webviewHtml } from './previewProvider';
@@ -41,7 +42,7 @@ class ConverterPanel {
   }
 
   private post(m: HostToWebview): void {
-    void this.panel.webview.postMessage(m);
+    void this.panel.webview.postMessage(forWebview(m));
   }
 
   private async onMessage(m: WebviewToHost): Promise<void> {

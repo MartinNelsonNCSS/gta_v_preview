@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.15.1
+
+- Fixed: images and files read from disk reached the editor as unreadable data in desktop VS Code ("e.slice is not a function"), which broke the mod-kit livery maker's UV template and artwork, livery **Follow image…** / decal images, texture **Replace…** and adding images to a `.ytd`. VS Code sends Node buffers as JSON objects, so they're now converted to plain byte arrays first.
+
 ## 0.15.0
 
 - **New Mod-Kit Livery…**: make liveries for vehicles whose liveries are separate models (`VMT_LIVERY_MOD`), including escrow-protected packs that publish livery templates (such as ONX's blank livery `.yft` and UV template PNGs). Your artwork (followed live from your image app, shown over the UV template) goes into a copy of the template model at full size with mipmaps, the livery is added to the vehicle's kit in `carcols.meta`, and a resource of its own streams it and names it in game (`AddTextEntry`). Existing readable livery models can be updated. Offered from the Explorer and when opening an escrow-protected vehicle.

@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import { forWebview } from './webviewMessage';
 import { addLiveryMod, labelScript, liveryManifest, liveryNameProblem, parseKits, suggestLiveryName, vehicleKits } from '../formats/modLivery';
 import { isEncrypted } from '../formats/scan';
 import { readFullTexture, replaceTexture } from '../formats/textureEdit';
@@ -69,7 +70,7 @@ class ModLiveryPanel {
   }
 
   private post(m: HostToWebview): void {
-    void this.panel.webview.postMessage(m);
+    void this.panel.webview.postMessage(forWebview(m));
   }
 
   private async onMessage(m: WebviewToHost): Promise<void> {
