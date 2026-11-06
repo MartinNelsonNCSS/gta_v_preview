@@ -458,10 +458,7 @@ export function drawThroughMirror(ctx: CanvasRenderingContext2D, area: Pt[], map
   const px = Math.hypot(T.a, T.b) || 1;
   const box = polygonBox(area);
   const k = Math.min(px, 4096 / Math.max(1, box.w, box.h));
-  const c = document.createElement('canvas');
-  c.width = Math.max(1, Math.ceil(box.w * k));
-  c.height = Math.max(1, Math.ceil(box.h * k));
-  const cx = c.getContext('2d')!;
+  const { canvas: c, ctx: cx } = preciseCanvas(Math.max(1, Math.ceil(box.w * k)), Math.max(1, Math.ceil(box.h * k)));
   cx.setTransform(k, 0, 0, k, -box.x * k, -box.y * k);
   cx.clip(polygonPath(area));
   source(cx);
@@ -507,11 +504,23 @@ export function drawDesign(ctx: CanvasRenderingContext2D, d: Design, images: Ass
   flush();
 }
 
+/**
+ * A canvas that keeps 16 bits per channel where the browser supports it.
+ * An ordinary canvas stores colour premultiplied by alpha in 8 bits, so
+ * see-through colours read back a few levels off (#7a3fc8 at 20% comes back
+ * as 120, 65, 200); this one gives back exactly what was drawn.
+ */
+function preciseCanvas(w: number, h: number): { canvas: HTMLCanvasElement; ctx: CanvasRenderingContext2D } {
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = (canvas.getContext('2d', { colorType: 'float16' } as CanvasRenderingContext2DSettings) ?? canvas.getContext('2d'))!;
+  return { canvas, ctx };
+}
+
 /** The design as pixels at `size`×`size`. */
 export function rasterize(d: Design, images: AssetImages, size: number): HTMLCanvasElement {
-  const c = document.createElement('canvas');
-  c.width = c.height = size;
-  const ctx = c.getContext('2d')!;
+  const { canvas: c, ctx } = preciseCanvas(size, size);
   ctx.scale(size / 2048, size / 2048);
   drawDesign(ctx, d, images);
   return c;

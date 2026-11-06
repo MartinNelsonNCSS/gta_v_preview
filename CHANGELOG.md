@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.1
+
+- **Exact colours** in livery PNGs and textures:
+  - Colour buttons open a built-in picker with Hex, RGB and HSB fields instead of the system one. On macOS the system picker's sliders work in Display P3 or Generic RGB, and the result is converted to sRGB, so the numbers typed there weren't the numbers saved. The new picker is sRGB throughout, so the values you type are the values in the texture.
+  - See-through colours in designs come out exact (a canvas keeps colour premultiplied in 8 bits, which shifted them by a few levels; the designer now renders at 16 bits per channel).
+  - PNGs are written byte for byte (rather than through a canvas) and tagged sRGB, so image apps read the colours as they were made.
+
 ## 0.17.0
 
 - **Mirrors** in the livery designer, for UV layouts whose matching pieces (the two sides, the halves of a bumper or the roof) aren't exact mirror images:

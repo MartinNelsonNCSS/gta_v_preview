@@ -1,4 +1,5 @@
 import { h } from '../ui';
+import { colourInput } from '../colourPicker';
 import { fontPicker, bytesToBase64, familyFromFileName, loadFont, setSystemFonts } from './fonts';
 import {
   Blend,
@@ -2355,7 +2356,7 @@ function helpText(): HTMLElement {
 export function colourField(value: Colour, onChange: (c: Colour) => void, title = 'Colour', withSwatches = true): HTMLElement {
   const rgb = value.slice(0, 7);
   const alpha = value.length === 9 ? parseInt(value.slice(7), 16) / 255 : 1;
-  const picker = h('input', { type: 'color', value: rgb, title });
+  const picker = colourInput(rgb, title);
   const opacity = h('input', { type: 'range', min: 0, max: 100, value: Math.round(alpha * 100), title: 'Opacity', class: 'designer-alpha' });
   const emit = () => {
     const a = Number(opacity.value) / 100;

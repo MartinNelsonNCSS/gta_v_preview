@@ -20,6 +20,7 @@ import { isEncodable, mipLevelsFor } from '../formats/bcEncode';
 import { availableLod, DEFAULT_PAINT, TextureStore } from './scene';
 import { decodeBc7 } from './bc7';
 import { canvasToRgba, decodeImage, resizeCanvas, rgbaCanvas, rgbaToPng } from './imageUtils';
+import { colourInput } from './colourPicker';
 import { textureCanvas, textureDescription } from './textureCanvas';
 import { originName } from './textureEditor';
 import { h, hostRequest, newRequestId, onHostMessage, pref, setPref, vscode } from './ui';
@@ -1187,7 +1188,7 @@ export class LiveryEditor {
       h('option', { value: 'livery', selected: true }, 'Current livery')
     );
     const fill = h('input', { type: 'checkbox', checked: true });
-    const colour = h('input', { type: 'color', value: '#ff2d55' });
+    const colour = colourInput('#ff2d55', 'Template colour');
     const holder = h('div', { class: 'livery-template checker' });
     let liveryCanvas: HTMLCanvasElement | undefined;
     const draw = async (): Promise<HTMLCanvasElement> => {
@@ -1395,7 +1396,7 @@ export class LiveryEditor {
           'div',
           { class: 'livery-paints' },
           paints.map((p) => {
-            const input = h('input', { type: 'color', value: hex(store.paintColour(p)) });
+            const input = colourInput(hex(store.paintColour(p)), 'Paint colour');
             input.addEventListener('input', () => {
               const c = parseInt(input.value.slice(1), 16);
               store.setPaint(p, c);
@@ -1565,9 +1566,9 @@ export class LiveryEditor {
             update();
           });
           input.addEventListener('change', () => this.render());
-          const fill = h('input', { type: 'color', value: text.colour, title: 'Text colour' });
+          const fill = colourInput(text.colour, 'Text colour');
           fill.addEventListener('input', () => (this.checkpoint(`fill:${d.id}`), (text.colour = fill.value), update()));
-          const outline = h('input', { type: 'color', value: text.outline, title: 'Outline colour' });
+          const outline = colourInput(text.outline, 'Outline colour');
           outline.addEventListener('input', () => (this.checkpoint(`outline:${d.id}`), (text.outline = outline.value), update()));
           const outlineOn = h('input', { type: 'checkbox', checked: text.outlineOn });
           outlineOn.addEventListener('change', () => (this.checkpoint(), (text.outlineOn = outlineOn.checked), update()));

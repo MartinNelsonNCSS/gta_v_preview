@@ -1155,8 +1155,8 @@ input[type='number'] {
   flex-direction: column;
   gap: 2px;
 }
-.livery-paints input[type='color'],
-.livery-decal-controls input[type='color'] {
+.livery-paints .colour-input,
+.livery-decal-controls .colour-input {
   width: 28px;
   height: 20px;
   padding: 0;
@@ -1300,7 +1300,7 @@ input[type='number'] {
 .designer-value { text-align: right; }
 .designer-text { width: 100%; box-sizing: border-box; resize: vertical; font: inherit; }
 .designer-colour { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.designer-colour input[type=color] { width: 32px; height: 22px; padding: 0; border: 1px solid var(--vscode-panel-border, #444); background: none; }
+.designer-colour .colour-input { width: 32px; height: 22px; }
 .designer-alpha { width: 70px; }
 .designer-swatches { display: inline-flex; gap: 2px; flex-wrap: wrap; }
 .designer-swatch { width: 13px; height: 13px; padding: 0; border: 1px solid rgba(128,128,128,.6); border-radius: 2px; cursor: pointer; }
@@ -1327,3 +1327,21 @@ input[type='number'] {
 .designer-score.good { color: var(--vscode-testing-iconPassed, #3fb950); }
 .designer-score.fair { color: var(--vscode-editorWarning-foreground, #d29922); }
 .designer-score.poor { color: var(--vscode-errorForeground, #f85149); }
+
+/* sRGB colour picker (colourPicker.ts) */
+.colour-input { width: 28px; height: 20px; padding: 0; border: 1px solid var(--vscode-panel-border, #555); border-radius: 3px; cursor: pointer; flex: none; box-shadow: inset 0 0 0 1px rgba(255,255,255,.15); }
+.colour-input.open { outline: 1px solid var(--vscode-focusBorder, #007fd4); outline-offset: 1px; }
+.colour-popover { position: fixed; z-index: 1000; width: 206px; padding: 8px; display: flex; flex-direction: column; gap: 6px; background: var(--vscode-editorWidget-background, #252526); color: var(--vscode-editorWidget-foreground, #ccc); border: 1px solid var(--vscode-editorWidget-border, #454545); border-radius: 4px; box-shadow: 0 4px 16px rgba(0,0,0,.45); font-size: 12px; }
+.colour-sv { position: relative; height: 130px; border-radius: 3px; cursor: crosshair; touch-action: none; }
+.colour-sv-dot { position: absolute; width: 10px; height: 10px; margin: -6px 0 0 -6px; border: 2px solid #fff; border-radius: 50%; box-shadow: 0 0 0 1px rgba(0,0,0,.6); pointer-events: none; }
+.colour-hue { position: relative; height: 12px; border-radius: 3px; cursor: ew-resize; touch-action: none; background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00); }
+.colour-hue-dot { position: absolute; top: -2px; width: 6px; height: 16px; margin-left: -4px; border: 1px solid #fff; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.6); pointer-events: none; }
+.colour-row { display: flex; gap: 4px; align-items: center; }
+.colour-compare { display: flex; flex: none; height: 22px; width: 56px; border: 1px solid var(--vscode-panel-border, #555); border-radius: 3px; overflow: hidden; }
+.colour-was { flex: 1; border: none; padding: 0; cursor: pointer; border-radius: 0; }
+.colour-now { flex: 1; }
+.colour-hex { flex: 1; min-width: 0; font-family: var(--vscode-editor-font-family, monospace); }
+.colour-num { flex: 1; display: flex; align-items: center; gap: 2px; min-width: 0; }
+.colour-num span { width: 9px; opacity: .75; }
+.colour-num input { width: 100%; min-width: 0; padding: 1px 2px; }
+.colour-note { line-height: 1.3; }
