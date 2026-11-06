@@ -1,4 +1,7 @@
-import type { Design, ImageLayer, Layer, Paint, PathPoint, TextLayer } from './model';
+import { mirrorMode } from './model';
+import type { Design, ImageLayer, Layer, Mirror, Paint, PathPoint, Pt, TextLayer } from './model';
+import { Affine, inPolygon, Mapping, mirrorMapping, polygonBox, polygonPath } from './mirror';
+import { warpImage } from './warp';
 
 /*
  * Drawing designs with Canvas 2D. Each layer is drawn in its own frame
@@ -374,13 +377,13 @@ function drawText(ctx: CanvasRenderingContext2D, t: TextLayer): void {
   });
 }
 
-/** Draws one layer in design units (the context already maps design units to pixels). */
-export function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, images: AssetImages): void {
+/** Draws one layer in design units (the context already maps design units to pixels); `frame` replaces the layer's own matrix. */
+export function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, images: AssetImages, frame?: DOMMatrix): void {
   if (!l.visible || l.opacity <= 0) return;
   ctx.save();
   ctx.globalAlpha *= l.opacity;
   ctx.globalCompositeOperation = l.blend;
-  const m = layerMatrix(l);
+  const m = frame ?? layerMatrix(l);
   ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
   if (l.shadow && (l.shadow.blur > 0 || l.shadow.dx || l.shadow.dy)) {
     // Shadow offsets ignore the transform, so scale them by the current pixel scale.
@@ -413,25 +416,95 @@ export function drawLayer(ctx: CanvasRenderingContext2D, l: Layer, images: Asset
   ctx.restore();
 }
 
-/** Draws a whole design. `scale`: pixels per design unit. */
+/** Draws layer `i` (clipped to the layer below when it's a clipping layer); `frame` gives each layer's matrix. */
+function drawAt(ctx: CanvasRenderingContext2D, layers: Layer[], i: number, images: AssetImages, frame: (l: Layer) => DOMMatrix = layerMatrix): void {
+  const l = layers[i];
+  if (l.clip && i > 0) {
+    // Clip to the layer below: done here so the clip is part of this layer's saved state.
+    const below = layers[i - 1];
+    const mask = shapePath(below);
+    ctx.save();
+    if (mask) {
+      const m = frame(below);
+      const t = ctx.getTransform();
+      ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
+      ctx.clip(mask);
+      ctx.setTransform(t);
+    }
+    drawLayer(ctx, l, images, frame(l));
+    ctx.restore();
+  } else drawLayer(ctx, l, images, frame(l));
+}
+
+const dom = (a: Affine | number[]) => new DOMMatrix([a[0], a[1], a[2], a[3], a[4], a[5]]);
+
+/**
+ * Draws `source` (drawn in design units, inside the mirror's area) through
+ * the mirror: as vectors when the mapping is affine, else rasterised at the
+ * context's resolution and warped.
+ */
+export function drawThroughMirror(ctx: CanvasRenderingContext2D, area: Pt[], mapping: Mapping, source: (c: CanvasRenderingContext2D) => void): void {
+  if (area.length < 3) return;
+  if (mapping.affine) {
+    ctx.save();
+    const a = mapping.affine;
+    ctx.transform(a[0], a[1], a[2], a[3], a[4], a[5]);
+    ctx.clip(polygonPath(area));
+    source(ctx);
+    ctx.restore();
+    return;
+  }
+  const T = ctx.getTransform();
+  const px = Math.hypot(T.a, T.b) || 1;
+  const box = polygonBox(area);
+  const k = Math.min(px, 4096 / Math.max(1, box.w, box.h));
+  const c = document.createElement('canvas');
+  c.width = Math.max(1, Math.ceil(box.w * k));
+  c.height = Math.max(1, Math.ceil(box.h * k));
+  const cx = c.getContext('2d')!;
+  cx.setTransform(k, 0, 0, k, -box.x * k, -box.y * k);
+  cx.clip(polygonPath(area));
+  source(cx);
+  warpImage(ctx, c, { x: box.x, y: box.y, w: c.width / k, h: c.height / k }, mapping.map);
+}
+
+/** Layer `i` and the layers below it that it needs, drawn as their mirrored copy. */
+function drawMirrored(ctx: CanvasRenderingContext2D, layers: Layer[], indices: number[], m: Mirror, mapping: Mapping, images: AssetImages): void {
+  const mirrored = indices.filter((i) => mirrorMode(layers[i]) === 'mirror');
+  if (mirrored.length) drawThroughMirror(ctx, m.area, mapping, (c) => mirrored.forEach((i) => drawAt(c, layers, i, images)));
+  // Readable layers (text, logos): placed where the mirror puts them, but not flipped.
+  for (const i of indices) {
+    const l = layers[i];
+    if (mirrorMode(l) !== 'readable') continue;
+    const b = localBox(l);
+    const own = layerMatrix(l);
+    const centre = own.transformPoint(new DOMPoint(b.x + b.w / 2, b.y + b.h / 2));
+    if (!inPolygon(m.area, centre.x, centre.y)) continue;
+    const local = dom(mapping.local({ x: centre.x, y: centre.y }));
+    const cx = b.x + b.w / 2;
+    // Flip back across the layer's own vertical axis: same place and "up", reading forwards.
+    const unflip = new DOMMatrix().translateSelf(cx, 0).scaleSelf(-1, 1).translateSelf(-cx, 0);
+    const frame = (x: Layer) => (x === l ? local.multiply(own).multiply(unflip) : local.multiply(layerMatrix(x)));
+    drawAt(ctx, layers, i, images, frame);
+  }
+}
+
+/** Draws a whole design, mirrors included. */
 export function drawDesign(ctx: CanvasRenderingContext2D, d: Design, images: AssetImages): void {
+  const mirrors = (d.mirrors ?? []).filter((m) => m.enabled && m.area.length >= 3).map((m) => ({ m, mapping: mirrorMapping(m) }));
+  let pending: number[] = [];
+  // Mirrored copies are drawn after the layers they copy, and before any "this side only" layer above them.
+  const flush = () => {
+    if (pending.length) for (const { m, mapping } of mirrors) drawMirrored(ctx, d.layers, pending, m, mapping, images);
+    pending = [];
+  };
   d.layers.forEach((l, i) => {
-    if (l.clip && i > 0) {
-      // Clip to the layer below: done here so the clip is part of this layer's saved state.
-      const below = d.layers[i - 1];
-      const mask = shapePath(below);
-      ctx.save();
-      if (mask) {
-        const m = layerMatrix(below);
-        const t = ctx.getTransform();
-        ctx.transform(m.a, m.b, m.c, m.d, m.e, m.f);
-        ctx.clip(mask);
-        ctx.setTransform(t);
-      }
-      drawLayer(ctx, l, images);
-      ctx.restore();
-    } else drawLayer(ctx, l, images);
+    const mode = mirrors.length ? mirrorMode(l) : 'off';
+    if (mirrors.length && mode === 'off') flush();
+    drawAt(ctx, d.layers, i, images);
+    if (mode !== 'off' && l.visible) pending.push(i);
   });
+  flush();
 }
 
 /** The design as pixels at `size`×`size`. */

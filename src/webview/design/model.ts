@@ -64,6 +64,8 @@ interface LayerBase {
   clip: boolean;
   /** Group id: grouped layers are selected, moved and transformed together. */
   group?: string;
+  /** How mirrors copy the layer (default: text and images stay readable, everything else is mirrored). */
+  mirror?: MirrorMode;
   /** Position of the layer's centre, rotation in degrees, scale (negative: mirrored). */
   x: number;
   y: number;
@@ -104,6 +106,36 @@ export type ImageLayer = LayerBase & { type: 'image'; asset: string; w: number; 
 export type Layer = RectLayer | EllipseLayer | PolygonLayer | PathLayer | BrushLayer | TextLayer | ImageLayer;
 export type LayerType = Layer['type'];
 
+export interface Pt {
+  x: number;
+  y: number;
+}
+
+/** A matching point pair: `a` on the source piece, `b` where it belongs on the mirrored piece. */
+export interface MirrorPin {
+  a: Pt;
+  b: Pt;
+}
+
+/**
+ * Symmetry between two pieces of the UV layout: what's drawn inside `area`
+ * is copied, reflected across `line`, onto the matching piece. `fit` (an
+ * affine [a, b, c, d, e, f] applied after the reflection) and `pins` correct
+ * for pieces that aren't exact mirror images.
+ */
+export interface Mirror {
+  id: string;
+  name: string;
+  enabled: boolean;
+  line: [Pt, Pt];
+  /** The source piece, as a polygon in design units. */
+  area: Pt[];
+  fit?: number[];
+  pins: MirrorPin[];
+}
+
+export type MirrorMode = 'mirror' | 'readable' | 'off';
+
 export interface Design {
   version: 1;
   /** Bottom to top. */
@@ -114,9 +146,11 @@ export interface Design {
   fonts: Record<string, string>;
   /** Group names (and whether they're folded in the layer list), by id. */
   groups?: Record<string, { name: string; collapsed?: boolean }>;
+  /** Symmetry between matching pieces of the template. */
+  mirrors?: Mirror[];
 }
 
-export const emptyDesign = (): Design => ({ version: 1, layers: [], assets: {}, fonts: {}, groups: {} });
+export const emptyDesign = (): Design => ({ version: 1, layers: [], assets: {}, fonts: {}, groups: {}, mirrors: [] });
 
 let counter = 0;
 export const newId = () => `${Date.now().toString(36)}${(counter++).toString(36)}`;
@@ -194,7 +228,7 @@ export function cloneLayer<T extends Layer>(l: T): T {
 export function parseDesign(text: string): Design {
   const d = JSON.parse(text) as Partial<Design>;
   if (!d || !Array.isArray(d.layers)) throw new Error('Not a livery design file.');
-  return { version: 1, layers: d.layers, assets: d.assets ?? {}, fonts: d.fonts ?? {}, groups: d.groups ?? {} };
+  return { version: 1, layers: d.layers, assets: d.assets ?? {}, fonts: d.fonts ?? {}, groups: d.groups ?? {}, mirrors: Array.isArray(d.mirrors) ? d.mirrors : [] };
 }
 
 /** A design with only the assets and fonts its layers use. */
@@ -206,7 +240,15 @@ export function packDesign(d: Design): Design {
     version: 1,
     layers: d.layers,
     groups: Object.fromEntries(Object.entries(d.groups ?? {}).filter(([k]) => groups.has(k))),
+    ...(d.mirrors?.length ? { mirrors: d.mirrors } : {}),
     assets: Object.fromEntries(Object.entries(d.assets).filter(([k]) => assets.has(k))),
     fonts: Object.fromEntries(Object.entries(d.fonts).filter(([k]) => fonts.has(k))),
   };
+}
+
+/** How mirrors treat a layer. Text and images stay readable; a full-canvas image (a base texture) isn't mirrored. */
+export function mirrorMode(l: Layer): MirrorMode {
+  if (l.mirror) return l.mirror;
+  if (l.type === 'image' && Math.abs(l.w * l.sx * l.h * l.sy) >= DESIGN_SIZE * DESIGN_SIZE * 0.8) return 'off';
+  return l.type === 'text' || l.type === 'image' ? 'readable' : 'mirror';
 }

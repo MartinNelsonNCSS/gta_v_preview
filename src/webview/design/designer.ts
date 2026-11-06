@@ -11,16 +11,22 @@ import {
   Layer,
   LayerType,
   makeLayer,
+  Mirror,
+  MirrorMode,
+  mirrorMode,
   newId,
   packDesign,
   Paint,
   PathLayer,
   PathPoint,
+  Pt,
   solid,
   Stroke,
   TextLayer,
 } from './model';
-import { AssetImages, Box, drawDesign, hitLayer, layerBounds, layerCorners, layerMatrix, localBox, rasterize } from './render';
+import { AssetImages, Box, drawDesign, drawThroughMirror, hitLayer, layerBounds, layerCorners, layerMatrix, localBox, rasterize } from './render';
+import { inPolygon, mappedOutline, mirrorMapping, polygonBox, swapMirror } from './mirror';
+import { autoFit, LineMap, linePoints, lineMap, misalignment, Nearest, nearestLines, placeMirror, tintedTemplate } from './fit';
 
 /*
  * The livery designer: a vector editor for livery textures. Shapes, pen
@@ -39,7 +45,7 @@ export interface DesignerHost {
   status(text: string): void;
 }
 
-type Tool = 'select' | 'hand' | 'rect' | 'ellipse' | 'polygon' | 'line' | 'pen' | 'brush' | 'text';
+type Tool = 'select' | 'hand' | 'rect' | 'ellipse' | 'polygon' | 'line' | 'pen' | 'brush' | 'text' | 'mirror';
 
 const TOOLS: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: 'select', icon: '➤', label: 'Select and move', key: 'V' },
@@ -51,6 +57,16 @@ const TOOLS: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: 'pen', icon: '✒', label: 'Pen: click for corners, drag for curves, click the first point to close, Enter to finish', key: 'P' },
   { tool: 'brush', icon: '🖌', label: 'Brush (smoothed vector strokes)', key: 'B' },
   { tool: 'text', icon: 'T', label: 'Text', key: 'T' },
+  { tool: 'mirror', icon: '⧓', label: 'Mirror: drag a box around one piece of the template; what you draw there is copied onto its matching piece', key: 'M' },
+];
+
+/** Mirror overlay colours: the source piece, and where it lands. */
+const SOURCE = '#ff9f1a';
+const TARGET = '#ff3df0';
+const MIRROR_MODES: [MirrorMode, string, string][] = [
+  ['mirror', 'Mirrored', 'Flipped onto the matching piece (stripes, shapes, paint)'],
+  ['readable', 'Kept readable', 'Placed on the matching piece but not flipped, so text and logos read forwards'],
+  ['off', 'This side only', 'Not copied by mirrors (e.g. a unit number on one side)'],
 ];
 
 const BLENDS: [Blend, string][] = [
@@ -77,7 +93,11 @@ type Handle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w' | 'rotate';
 const HANDLE_POS: Record<Exclude<Handle, 'rotate'>, [number, number]> = { nw: [0, 0], n: [0.5, 0], ne: [1, 0], e: [1, 0.5], se: [1, 1], s: [0.5, 1], sw: [0, 1], w: [0, 0.5] };
 
 interface Drag {
-  kind: 'move' | 'scale' | 'rotate' | 'scale-multi' | 'rotate-multi' | 'pan' | 'create' | 'brush' | 'marquee' | 'node' | 'handle-in' | 'handle-out' | 'pen-handle';
+  kind:
+    | 'move' | 'scale' | 'rotate' | 'scale-multi' | 'rotate-multi' | 'pan' | 'create' | 'brush' | 'marquee' | 'node' | 'handle-in' | 'handle-out' | 'pen-handle'
+    | 'mirror-box' | 'mirror-end' | 'mirror-line' | 'mirror-vertex' | 'pin-a' | 'pin-b';
+  /** The mirror being edited, as it was when the drag started. */
+  mirror?: Mirror;
   /** Combined bounds of the layers when a multi-layer transform started. */
   box?: Box;
   start: { x: number; y: number };
@@ -127,12 +147,22 @@ export class Designer {
   private drawQueued = false;
   /** Followed image files: link id → asset id. */
   private readonly follows = new Map<number, string>();
+  /** The mirror being edited, its selected pin, and whether clicks add pins. */
+  private mirrorSel?: string;
+  private selectedPin?: number;
+  private pinMode = false;
+  private ghost = true;
+  /** Template line distances (without each mirror's own piece), and line points, by area. */
+  private readonly nearCache = new Map<string, { near: Nearest; points: Pt[] }>();
+  private scoreTimer?: ReturnType<typeof setTimeout>;
+  private readonly scoreEl = h('div', { class: 'small designer-score' });
 
   private readonly canvas = h('canvas', { class: 'designer-canvas', tabindex: 0 });
   private readonly stage = h('div', { class: 'designer-stage' }, this.canvas);
   private readonly toolbar = h('div', { class: 'designer-toolbar' });
   private readonly topbar = h('div', { class: 'designer-topbar' });
   private readonly layersEl = h('div', { class: 'designer-layers' });
+  private readonly mirrorsEl = h('div', { class: 'designer-mirrors' });
   private readonly propsEl = h('div', { class: 'designer-props' });
   private readonly zoomLabel = h('span', { class: 'designer-zoom small' });
   private readonly resize = new ResizeObserver(() => this.layout());
@@ -143,7 +173,7 @@ export class Designer {
       { class: 'designer' },
       this.toolbar,
       h('div', { class: 'designer-main' }, this.topbar, this.stage),
-      h('div', { class: 'designer-side' }, h('div', { class: 'pack-section' }, 'Layers'), this.layersEl, this.propsEl)
+      h('div', { class: 'designer-side' }, h('div', { class: 'pack-section' }, 'Mirrors'), this.mirrorsEl, h('div', { class: 'pack-section' }, 'Layers'), this.layersEl, this.propsEl)
     );
     this.canvas.addEventListener('pointerdown', (e) => this.onDown(e));
     this.canvas.addEventListener('pointermove', (e) => this.onMove(e));
@@ -172,6 +202,7 @@ export class Designer {
 
   setTemplate(canvas: HTMLCanvasElement | undefined): void {
     this.template = canvas;
+    this.nearCache.clear();
     this.renderTopbar();
     this.requestDraw();
   }
@@ -193,7 +224,9 @@ export class Designer {
         this.host.status(`Couldn't load the font ${family} stored in the design.`);
       }
     }
-    this.doc = { ...design, layers: design.layers.map(cloneLayer) };
+    this.doc = { ...design, layers: design.layers.map(cloneLayer), mirrors: JSON.parse(JSON.stringify(design.mirrors ?? [])) as Mirror[] };
+    this.mirrorSel = undefined;
+    this.pinMode = false;
     this.images.clear();
     await Promise.all(Object.entries(this.doc.assets).map(([id, url]) => this.decodeAsset(id, url)));
     this.selection.clear();
@@ -223,6 +256,8 @@ export class Designer {
       w,
       h: opts.fill ? DESIGN_SIZE : w / aspect,
       locked: !!opts.locked,
+      // A base texture isn't copied by mirrors.
+      ...(opts.bottom ? { mirror: 'off' } : {}),
     } as Partial<ImageLayer>);
     if (opts.bottom) this.doc.layers.unshift(layer);
     else this.doc.layers.push(layer);
@@ -271,6 +306,7 @@ export class Designer {
 
   private select(ids: string[]): void {
     this.selection = new Set(ids);
+    if (ids.length) this.selectMirror(undefined, false);
     if (this.nodeEdit && !this.selection.has(this.nodeEdit)) this.nodeEdit = undefined;
     this.renderPanels();
     this.requestDraw();
@@ -293,11 +329,15 @@ export class Designer {
       this.historyAt = now;
       return;
     }
-    this.undoStack.push(JSON.stringify(this.doc.layers));
+    this.undoStack.push(this.snapshot());
     if (this.undoStack.length > 200) this.undoStack.shift();
     this.redoStack.length = 0;
     this.historyGroup = group;
     this.historyAt = now;
+  }
+
+  private snapshot(): string {
+    return JSON.stringify({ layers: this.doc.layers, mirrors: this.doc.mirrors ?? [] });
   }
 
   /** After a change: redraw, refresh the panels, tell the host. */
@@ -306,6 +346,7 @@ export class Designer {
     this.renderTopbar();
     this.requestDraw();
     this.host.changed();
+    this.scheduleScore();
   }
 
   private undo(redo = false): void {
@@ -313,8 +354,12 @@ export class Designer {
     const to = redo ? this.undoStack : this.redoStack;
     const state = from.pop();
     if (!state) return;
-    to.push(JSON.stringify(this.doc.layers));
-    this.doc.layers = JSON.parse(state) as Layer[];
+    to.push(this.snapshot());
+    const parsed = JSON.parse(state) as { layers: Layer[]; mirrors: Mirror[] };
+    this.doc.layers = parsed.layers;
+    this.doc.mirrors = parsed.mirrors;
+    if (this.mirrorSel && !this.mirrorById(this.mirrorSel)) this.mirrorSel = undefined;
+    this.selectedPin = undefined;
     this.historyGroup = undefined;
     this.selection = new Set([...this.selection].filter((id) => this.layer(id)));
     this.nodeEdit = undefined;
@@ -405,6 +450,7 @@ export class Designer {
     }
     ctx.restore();
     if (this.templateMode === 'over') drawTemplate();
+    this.drawGhost(ctx, dpr);
     if (this.grid) {
       ctx.strokeStyle = 'rgba(0,160,255,0.25)';
       ctx.lineWidth = 1;
@@ -551,6 +597,7 @@ export class Designer {
         ctx.strokeRect(q.x - 4, q.y - 4, 8, 8);
       });
     }
+    this.drawMirrorOverlay(ctx);
     // Marquee.
     if (this.drag?.kind === 'marquee' && this.hover) {
       const a = this.toScreen(this.drag.start.x, this.drag.start.y);
@@ -587,6 +634,401 @@ export class Designer {
     return [['nw', at(0, 0)], ['ne', at(1, 0)], ['se', at(1, 1)], ['sw', at(0, 1)], ['rotate', { x: top.x, y: top.y - 24 }]];
   }
 
+  // -- mirrors --------------------------------------------------------------------------------
+
+  private mirrorById(id: string): Mirror | undefined {
+    return this.doc.mirrors?.find((m) => m.id === id);
+  }
+
+  private get activeMirror(): Mirror | undefined {
+    return this.mirrorSel ? this.mirrorById(this.mirrorSel) : undefined;
+  }
+
+  private selectMirror(id: string | undefined, render = true): void {
+    if (this.mirrorSel === id) return;
+    this.mirrorSel = id;
+    this.selectedPin = undefined;
+    if (!id) this.pinMode = false;
+    if (id) this.selection.clear();
+    if (render) {
+      this.renderPanels();
+      this.requestDraw();
+      this.scheduleScore();
+    }
+  }
+
+  private lines(): LineMap | undefined {
+    return this.template ? lineMap(this.template) : undefined;
+  }
+
+  /** The selected mirror's source lines drawn through it, in pink, to compare with the template. */
+  private drawGhost(ctx: CanvasRenderingContext2D, dpr: number): void {
+    const m = this.activeMirror;
+    if (!m || !this.ghost || !this.template || this.templateMode === 'off' || m.area.length < 3) return;
+    const ghost = tintedTemplate(this.template, [255, 61, 240]);
+    ctx.save();
+    ctx.setTransform(dpr * this.zoom, 0, 0, dpr * this.zoom, dpr * this.panX, dpr * this.panY);
+    ctx.globalAlpha = Math.min(1, this.templateOpacity + 0.25);
+    drawThroughMirror(ctx, m.area, mirrorMapping(m), (c) => c.drawImage(ghost, 0, 0, DESIGN_SIZE, DESIGN_SIZE));
+    ctx.restore();
+  }
+
+  private drawMirrorOverlay(ctx: CanvasRenderingContext2D): void {
+    const s = (p: Pt) => this.toScreen(p.x, p.y);
+    const outline = (pts: Pt[], colour: string, dash: number[], fill?: string) => {
+      if (pts.length < 2) return;
+      ctx.beginPath();
+      pts.forEach((p, i) => {
+        const q = s(p);
+        if (i) ctx.lineTo(q.x, q.y);
+        else ctx.moveTo(q.x, q.y);
+      });
+      ctx.closePath();
+      if (fill) {
+        ctx.fillStyle = fill;
+        ctx.fill();
+      }
+      ctx.strokeStyle = colour;
+      ctx.setLineDash(dash);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    };
+    ctx.lineWidth = 1;
+    // Other mirrors, faintly, while the mirror tool is out.
+    for (const m of this.doc.mirrors ?? []) {
+      if (m.id === this.mirrorSel || (this.tool !== 'mirror' && !this.pinMode)) continue;
+      outline(m.area, m.enabled ? 'rgba(255,159,26,0.6)' : 'rgba(128,128,128,0.6)', [3, 3]);
+    }
+    if (this.drag?.kind === 'mirror-box' && this.hover) {
+      const a = this.drag.start;
+      const b = this.hover;
+      outline([a, { x: b.x, y: a.y }, b, { x: a.x, y: b.y }], SOURCE, [5, 4], 'rgba(255,159,26,0.1)');
+    }
+    const m = this.activeMirror;
+    if (!m) return;
+    const mapping = mirrorMapping(m);
+    outline(m.area, SOURCE, [], 'rgba(255,159,26,0.08)');
+    outline(mappedOutline(m.area, mapping.map), TARGET, [6, 4]);
+    // The mirror line, across the canvas.
+    const [p1, p2] = m.line;
+    const len = Math.hypot(p2.x - p1.x, p2.y - p1.y) || 1;
+    const ux = (p2.x - p1.x) / len;
+    const uy = (p2.y - p1.y) / len;
+    const far = DESIGN_SIZE * 2;
+    const a = s({ x: p1.x - ux * far, y: p1.y - uy * far });
+    const b = s({ x: p1.x + ux * far, y: p1.y + uy * far });
+    ctx.strokeStyle = SOURCE;
+    ctx.setLineDash([10, 5]);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const p of m.line) {
+      const q = s(p);
+      ctx.fillStyle = SOURCE;
+      ctx.strokeStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(q.x, q.y, 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    for (const p of m.area) {
+      const q = s(p);
+      ctx.fillStyle = '#ffffff';
+      ctx.strokeStyle = SOURCE;
+      ctx.fillRect(q.x - 4, q.y - 4, 8, 8);
+      ctx.strokeRect(q.x - 4, q.y - 4, 8, 8);
+    }
+    m.pins.forEach((pin, i) => {
+      const qa = s(pin.a);
+      const qb = s(pin.b);
+      const active = i === this.selectedPin;
+      if (active) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath();
+        ctx.moveTo(qa.x, qa.y);
+        ctx.lineTo(qb.x, qb.y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+      ctx.lineWidth = active ? 2.5 : 1.5;
+      ctx.fillStyle = SOURCE;
+      ctx.strokeStyle = active ? '#ffffff' : '#000000';
+      ctx.beginPath();
+      ctx.arc(qa.x, qa.y, 5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = TARGET;
+      ctx.beginPath();
+      ctx.moveTo(qb.x, qb.y - 7);
+      ctx.lineTo(qb.x + 7, qb.y);
+      ctx.lineTo(qb.x, qb.y + 7);
+      ctx.lineTo(qb.x - 7, qb.y);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.lineWidth = 1;
+      ctx.font = '10px sans-serif';
+      ctx.fillStyle = '#ffffff';
+      ctx.fillText(String(i + 1), qa.x + 7, qa.y - 6);
+      ctx.fillText(String(i + 1), qb.x + 8, qb.y - 7);
+    });
+  }
+
+  /** The selected mirror's handle under a screen point. */
+  private mirrorHit(screen: Pt): { kind: Drag['kind']; index: number } | undefined {
+    const m = this.activeMirror;
+    if (!m) return undefined;
+    const near = (p: Pt, r: number) => {
+      const q = this.toScreen(p.x, p.y);
+      return Math.hypot(q.x - screen.x, q.y - screen.y) <= r;
+    };
+    for (let i = m.pins.length - 1; i >= 0; i--) if (near(m.pins[i].b, 9)) return { kind: 'pin-b', index: i };
+    for (let i = m.pins.length - 1; i >= 0; i--) if (near(m.pins[i].a, 8)) return { kind: 'pin-a', index: i };
+    for (let i = 0; i < 2; i++) if (near(m.line[i], 9)) return { kind: 'mirror-end', index: i };
+    for (let i = 0; i < m.area.length; i++) if (near(m.area[i], 7)) return { kind: 'mirror-vertex', index: i };
+    // On the line itself (inside the canvas): move it.
+    const a = this.toScreen(m.line[0].x, m.line[0].y);
+    const b = this.toScreen(m.line[1].x, m.line[1].y);
+    const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+    const d = Math.abs((b.x - a.x) * (a.y - screen.y) - (a.x - screen.x) * (b.y - a.y)) / len;
+    const p = this.toDesign({ clientX: screen.x + this.canvas.getBoundingClientRect().left, clientY: screen.y + this.canvas.getBoundingClientRect().top });
+    if (d <= 5 && p.x >= 0 && p.y >= 0 && p.x <= DESIGN_SIZE && p.y <= DESIGN_SIZE) return { kind: 'mirror-line', index: 0 };
+    return undefined;
+  }
+
+  /** A box was drawn with the mirror tool: make a mirror for that piece and find its match. */
+  private createMirror(start: Pt, end: Pt): void {
+    const x0 = Math.max(0, Math.min(start.x, end.x));
+    const x1 = Math.min(DESIGN_SIZE, Math.max(start.x, end.x));
+    const y0 = Math.max(0, Math.min(start.y, end.y));
+    const y1 = Math.min(DESIGN_SIZE, Math.max(start.y, end.y));
+    if (x1 - x0 < 8 || y1 - y0 < 8) {
+      // A click: pick the mirror whose piece is there.
+      const hit = [...(this.doc.mirrors ?? [])].reverse().find((m) => inPolygon(m.area, start.x, start.y));
+      this.selectMirror(hit?.id);
+      return;
+    }
+    this.doc.mirrors ??= [];
+    const draft: Mirror = {
+      id: newId(),
+      name: `Mirror ${this.doc.mirrors.length + 1}`,
+      enabled: true,
+      // Without a template: the canvas's vertical centre line.
+      line: [{ x: DESIGN_SIZE / 2, y: 0 }, { x: DESIGN_SIZE / 2, y: DESIGN_SIZE }],
+      area: [{ x: x0, y: y0 }, { x: x1, y: y0 }, { x: x1, y: y1 }, { x: x0, y: y1 }],
+      pins: [],
+    };
+    const lines = this.lines();
+    this.host.status(lines ? 'Finding the matching piece…' : '');
+    // Let the status paint before the search.
+    setTimeout(() => {
+      const { mirror, score } = placeMirror(lines, draft, start);
+      this.checkpoint();
+      this.doc.mirrors!.push(mirror);
+      this.setTool('select');
+      this.selectMirror(mirror.id);
+      this.commit();
+      if (!lines) this.host.status(`${mirror.name}: drag the orange line where the two pieces meet (its ends tilt it). There’s no template to fit to, so check the copy by eye.`);
+      else if (score === undefined || score > 6)
+        this.host.status(`${mirror.name}: couldn’t find a clear match. Drag the orange line between the two pieces, then Auto-fit, or add pins.`);
+      else this.host.status(`${mirror.name}: copies the orange piece onto the pink one (off by ${score.toFixed(1)} on average). Check the pink ghost sits on the template; add pins where it doesn’t.`);
+    }, 20);
+  }
+
+  private editMirror(fn: (m: Mirror) => Mirror | void, group?: string): void {
+    const m = this.activeMirror;
+    if (!m) return;
+    this.checkpoint(group);
+    const next = fn(m);
+    if (next) this.doc.mirrors = this.doc.mirrors!.map((x) => (x.id === m.id ? next : x));
+    this.commit();
+  }
+
+  private runAutoFit(): void {
+    const m = this.activeMirror;
+    const lines = this.lines();
+    if (!m || !lines) return;
+    const result = autoFit(lines, m);
+    if (!result || !(result.after < result.before)) {
+      this.host.status(result ? `Auto-fit couldn’t improve it (off by ${result.before.toFixed(1)}). Move the line closer, or add pins.` : 'Auto-fit needs template lines inside the orange piece.');
+      return;
+    }
+    this.editMirror((x) => ({ ...x, fit: result.fit }));
+    this.host.status(`Auto-fit: off by ${result.after.toFixed(1)} on average (was ${result.before.toFixed(1)}).`);
+  }
+
+  private findMatch(): void {
+    const m = this.activeMirror;
+    const lines = this.lines();
+    if (!m || !lines) return;
+    const b = polygonBox(m.area);
+    const { mirror, score } = placeMirror(lines, { ...m, fit: undefined, pins: [] }, { x: b.x + b.w / 2, y: b.y + b.h / 2 });
+    this.editMirror(() => mirror);
+    this.host.status(score === undefined || score > 6 ? 'Couldn’t find a clear match; place the line by hand.' : `Found it: off by ${score.toFixed(1)} on average.`);
+  }
+
+  /** Recomputes the selected mirror's misalignment shortly after a change. */
+  private scheduleScore(): void {
+    clearTimeout(this.scoreTimer);
+    this.scoreTimer = setTimeout(() => this.updateScore(), this.drag ? 400 : 120);
+  }
+
+  private updateScore(): void {
+    const m = this.activeMirror;
+    const lines = this.lines();
+    if (!m || !lines || m.area.length < 3) {
+      this.scoreEl.textContent = '';
+      return;
+    }
+    const key = JSON.stringify(m.area);
+    let cached = this.nearCache.get(key);
+    if (!cached) {
+      if (this.nearCache.size > 8) this.nearCache.clear();
+      cached = { near: nearestLines(lines, m.area), points: linePoints(lines, m.area, 1500) };
+      this.nearCache.set(key, cached);
+    }
+    const score = misalignment(cached.near, cached.points, mirrorMapping(m).map);
+    if (!Number.isFinite(score)) {
+      this.scoreEl.textContent = 'No template lines inside the orange piece.';
+      this.scoreEl.className = 'small designer-score muted';
+      return;
+    }
+    const quality = score < 1.5 ? 'good' : score < 4 ? 'fair' : 'poor';
+    this.scoreEl.textContent = `Off by ${score.toFixed(1)} on average (${quality === 'good' ? 'lined up' : quality === 'fair' ? 'close: add pins where the ghost is off' : 'not lined up yet'}).`;
+    this.scoreEl.className = `small designer-score ${quality}`;
+  }
+
+  private renderMirrors(): void {
+    const mirrors = this.doc.mirrors ?? [];
+    const rows = mirrors.map((m) => {
+      const name = h('span', { class: 'designer-layer-name', title: 'Double-click to rename' }, m.name);
+      name.addEventListener('dblclick', (e) => {
+        e.stopPropagation();
+        const input = h('input', { type: 'text', value: m.name, class: 'designer-rename' });
+        const done = () => this.editMirror((x) => ({ ...x, name: input.value.trim() || x.name }));
+        input.addEventListener('keydown', (k) => (k.key === 'Enter' ? done() : undefined));
+        input.addEventListener('blur', done);
+        name.replaceWith(input);
+        input.focus();
+        input.select();
+      });
+      return h(
+        'div',
+        { class: `designer-layer${m.id === this.mirrorSel ? ' active' : ''}${m.enabled ? '' : ' hidden'}`, onclick: () => this.selectMirror(m.id === this.mirrorSel ? undefined : m.id) },
+        h(
+          'button',
+          {
+            class: 'designer-icon',
+            title: m.enabled ? 'Turn this mirror off' : 'Turn this mirror on',
+            onclick: (e: Event) => {
+              e.stopPropagation();
+              this.checkpoint();
+              m.enabled = !m.enabled;
+              this.commit();
+            },
+          },
+          m.enabled ? '👁' : '◌'
+        ),
+        h('span', { class: 'designer-layer-type' }, '⧓'),
+        name,
+        h('span', { class: 'small muted' }, m.pins.length ? `${m.pins.length} pin${m.pins.length === 1 ? '' : 's'}` : '')
+      );
+    });
+    this.mirrorsEl.replaceChildren(
+      ...(rows.length ? [h('div', { class: 'designer-layer-list designer-mirror-list' }, rows)] : []),
+      h(
+        'div',
+        { class: 'row designer-layer-actions' },
+        h('button', { class: `chip mini${this.tool === 'mirror' ? ' active' : ''}`, title: 'Drag a box around one piece of the template (M)', onclick: () => this.setTool(this.tool === 'mirror' ? 'select' : 'mirror') }, '+ Mirror'),
+        rows.length ? null : h('span', { class: 'small muted' }, 'Copy one side onto its matching piece.')
+      )
+    );
+  }
+
+  private renderMirrorProps(m: Mirror): void {
+    const btn = (label: string, title: string, onclick: () => void, opts: { active?: boolean; disabled?: boolean } = {}) =>
+      h('button', { class: `chip mini${opts.active ? ' active' : ''}`, title, disabled: !!opts.disabled, onclick }, label);
+    const hasTemplate = !!this.template;
+    const n = m.pins.length;
+    const pinHelp =
+      n === 0 ? 'No pins: a plain mirror.'
+      : n === 1 ? '1 pin: moves the copy.'
+      : n === 2 ? '2 pins: move, rotate and scale.'
+      : n === 3 ? '3 pins: also stretch and skew.'
+      : `${n} pins: bends to fit every pin.`;
+    const ghost = h('input', { type: 'checkbox', checked: this.ghost });
+    ghost.addEventListener('change', () => ((this.ghost = ghost.checked), this.requestDraw()));
+    const on = h('input', { type: 'checkbox', checked: m.enabled });
+    on.addEventListener('change', () => this.editMirror((x) => ({ ...x, enabled: on.checked })));
+    this.propsEl.replaceChildren(
+      h(
+        'div',
+        { class: 'designer-section' },
+        h('div', { class: 'designer-section-title' }, m.name),
+        h(
+          'div',
+          { class: 'small muted' },
+          'Whatever you draw in the orange piece is copied onto the pink outline. Text and logos stay readable; set it per layer under Layer → In mirrors.'
+        ),
+        h('div', { class: 'row' }, h('label', { class: 'toggle' }, on, 'On'), hasTemplate ? h('label', { class: 'toggle', title: 'Show the orange piece’s template lines where the mirror puts them' }, ghost, 'Alignment ghost') : null),
+        hasTemplate ? this.scoreEl : null,
+        h(
+          'div',
+          { class: 'row' },
+          hasTemplate ? btn('Auto-fit', 'Line the copy up with the template on the other side (move, rotate, scale, stretch)', () => this.runAutoFit()) : null,
+          hasTemplate ? btn('Find match', 'Search the template for the matching piece again (resets the fit and pins)', () => this.findMatch()) : null,
+          btn('Swap sides', 'Make the pink piece the one you draw on', () => this.editMirror((x) => swapMirror(x)))
+        )
+      ),
+      h(
+        'div',
+        { class: 'designer-section' },
+        h('div', { class: 'designer-section-title' }, 'Pins'),
+        h('div', { class: 'small muted' }, `Where the pink ghost doesn’t sit on the template: Add pins, click a point on the orange piece, then drag its pink ◆ onto the matching point. ${pinHelp}`),
+        h(
+          'div',
+          { class: 'row' },
+          btn(this.pinMode ? 'Adding pins…' : 'Add pins', 'Click points on the orange piece to pin them (Esc to stop)', () => {
+            this.pinMode = !this.pinMode;
+            this.host.status(this.pinMode ? 'Click a point on the orange piece (a corner, a wheel arch, a door edge), then drag its pink ◆ onto the same point on the other piece.' : '');
+            this.renderProps();
+            this.requestDraw();
+          }, { active: this.pinMode }),
+          btn('Remove pin', 'Remove the selected pin (Delete)', () => this.removePin(), { disabled: this.selectedPin === undefined }),
+          btn('Clear pins', 'Remove all pins', () => this.editMirror((x) => ({ ...x, pins: [] })), { disabled: !n })
+        )
+      ),
+      h(
+        'div',
+        { class: 'designer-section' },
+        h('div', { class: 'designer-section-title' }, 'Mirror line'),
+        h('div', { class: 'small muted' }, 'Drag the orange line to move it, its round ends to tilt it (Shift: level), the white squares to reshape the piece.'),
+        h(
+          'div',
+          { class: 'row' },
+          btn('Reset fit', 'Back to a plain reflection across the line (keeps the pins)', () => this.editMirror((x) => ({ ...x, fit: undefined })), { disabled: !m.fit }),
+          btn('Delete mirror', 'Remove this mirror (the layers stay)', () => {
+            this.checkpoint();
+            this.doc.mirrors = (this.doc.mirrors ?? []).filter((x) => x.id !== m.id);
+            this.selectMirror(undefined, false);
+            this.commit();
+          })
+        )
+      )
+    );
+    this.updateScore();
+  }
+
+  private removePin(): void {
+    const i = this.selectedPin;
+    if (i === undefined) return;
+    this.selectedPin = undefined;
+    this.editMirror((x) => ({ ...x, pins: x.pins.filter((_, j) => j !== i) }));
+  }
+
   // -- pointer ------------------------------------------------------------------------------
 
   private hitTop(p: { x: number; y: number }): Layer | undefined {
@@ -616,7 +1058,27 @@ export class Designer {
     if (e.button !== 0) return;
     switch (this.tool) {
       case 'select': {
-        // Node editing first.
+        // The selected mirror's handles first, then adding pins.
+        const mhit = this.mirrorHit(screen);
+        const am = this.activeMirror;
+        if (mhit && am) {
+          this.checkpoint();
+          if (mhit.kind === 'pin-a' || mhit.kind === 'pin-b') this.selectedPin = mhit.index;
+          this.drag = base(mhit.kind, { node: mhit.index, mirror: JSON.parse(JSON.stringify(am)) as Mirror });
+          this.renderProps();
+          this.requestDraw();
+          return;
+        }
+        if (am && this.pinMode) {
+          this.checkpoint();
+          const b = mirrorMapping(am).map(p);
+          am.pins.push({ a: { x: p.x, y: p.y }, b });
+          this.selectedPin = am.pins.length - 1;
+          this.host.status(`Pin ${am.pins.length}: now drag the pink ◆ onto the matching point on the other piece.`);
+          this.commit();
+          return;
+        }
+        // Node editing next.
         const edit = this.nodeEdit ? this.layer(this.nodeEdit) : undefined;
         if (edit && editablePoints(edit)) {
           const hit = this.hitNode(edit, screen);
@@ -713,6 +1175,9 @@ export class Designer {
       case 'brush':
         this.brushPts = [[p.x, p.y]];
         this.drag = base('brush');
+        return;
+      case 'mirror':
+        this.drag = base('mirror-box');
         return;
     }
   }
@@ -852,6 +1317,32 @@ export class Designer {
         }
         break;
       }
+      case 'mirror-box':
+        break;
+      case 'mirror-end':
+      case 'mirror-line':
+      case 'mirror-vertex':
+      case 'pin-a':
+      case 'pin-b': {
+        const m = this.activeMirror;
+        const o = d.mirror!;
+        if (!m) break;
+        const dx = p.x - d.start.x;
+        const dy = p.y - d.start.y;
+        const i = d.node!;
+        if (d.kind === 'mirror-line') m.line = [{ x: o.line[0].x + dx, y: o.line[0].y + dy }, { x: o.line[1].x + dx, y: o.line[1].y + dy }];
+        else if (d.kind === 'mirror-end') {
+          let q = { x: p.x, y: p.y };
+          const other = o.line[1 - i];
+          // Shift: level or upright.
+          if (e.shiftKey) q = Math.abs(q.x - other.x) > Math.abs(q.y - other.y) ? { x: q.x, y: other.y } : { x: other.x, y: q.y };
+          if (Math.hypot(q.x - other.x, q.y - other.y) > 4) m.line[i] = q;
+        } else if (d.kind === 'mirror-vertex') m.area[i] = { x: Math.max(0, Math.min(DESIGN_SIZE, p.x)), y: Math.max(0, Math.min(DESIGN_SIZE, p.y)) };
+        else if (d.kind === 'pin-a') m.pins[i].a = { x: o.pins[i].a.x + dx, y: o.pins[i].a.y + dy };
+        else m.pins[i].b = { x: o.pins[i].b.x + dx, y: o.pins[i].b.y + dy };
+        this.commit(false);
+        break;
+      }
       case 'node':
       case 'handle-in':
       case 'handle-out': {
@@ -884,7 +1375,11 @@ export class Designer {
     this.drag = undefined;
     this.guides = {};
     if (!d) return;
-    if (d.kind === 'create') {
+    if (d.kind === 'mirror-box') {
+      this.createMirror(d.start, this.toDesign(e));
+    } else if (['mirror-end', 'mirror-line', 'mirror-vertex', 'pin-a', 'pin-b'].includes(d.kind)) {
+      this.commit();
+    } else if (d.kind === 'create') {
       const l = d.layer!;
       // A click without dragging makes a default-sized shape.
       const tiny = Math.hypot(e.clientX - this.canvas.getBoundingClientRect().left - d.screen.x, e.clientY - this.canvas.getBoundingClientRect().top - d.screen.y) < 4;
@@ -965,6 +1460,8 @@ export class Designer {
     let cursor = 'default';
     if (this.tool === 'hand' || this.spaceDown) cursor = 'grab';
     else if (this.tool === 'text') cursor = 'text';
+    else if (this.tool === 'select' && this.mirrorHit(screen)) cursor = this.mirrorHit(screen)!.kind === 'mirror-line' ? 'move' : 'pointer';
+    else if (this.tool === 'select' && this.pinMode) cursor = 'crosshair';
     else if (this.tool !== 'select') cursor = 'crosshair';
     else {
       const sel = this.selected;
@@ -1129,7 +1626,9 @@ export class Designer {
     else if (mod && key === '-') this.setZoom(this.zoom / 1.25);
     else if (mod && key === '0') this.fit();
     else if (mod) handled = false;
-    else if (e.key === 'Delete' || e.key === 'Backspace') {
+    else if ((e.key === 'Delete' || e.key === 'Backspace') && this.activeMirror && !sel.length) {
+      if (this.selectedPin !== undefined) this.removePin();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
       const edit = this.nodeEdit ? this.layer(this.nodeEdit) : undefined;
       const pts = edit && editablePoints(edit);
       if (pts && this.selectedNode !== undefined && pts.length > 2) {
@@ -1142,6 +1641,8 @@ export class Designer {
       if (this.pen.length) this.finishPen(false);
       else if (this.nodeEdit) ((this.nodeEdit = undefined), (this.selectedNode = undefined), this.host.status(''), this.requestDraw());
       else if (this.tool !== 'select') this.setTool('select');
+      else if (this.pinMode) ((this.pinMode = false), this.host.status(''), this.renderProps(), this.requestDraw());
+      else if (this.mirrorSel) this.selectMirror(undefined);
       else this.select([]);
     } else if (e.key === 'Enter') {
       if (this.pen.length) this.finishPen(false);
@@ -1172,6 +1673,8 @@ export class Designer {
     if (this.pen.length && tool !== 'pen') this.finishPen(false);
     this.tool = tool;
     this.nodeEdit = undefined;
+    if (tool === 'mirror') this.host.status('Drag a box around one piece of the template (for a piece that is its own mirror image, like a bumper, box the whole piece starting on the side you’ll draw on).');
+    this.renderMirrors();
     this.renderToolbar();
     this.renderTopbar();
     this.requestDraw();
@@ -1410,6 +1913,7 @@ export class Designer {
   }
 
   renderPanels(): void {
+    this.renderMirrors();
     this.renderLayers();
     this.renderProps();
   }
@@ -1555,6 +2059,8 @@ export class Designer {
   private renderProps(): void {
     const sel = this.selected;
     if (sel.length !== 1) {
+      const am = this.activeMirror;
+      if (!sel.length && am) return void this.renderMirrorProps(am);
       if (!sel.length) return void this.propsEl.replaceChildren(h('div', { class: 'small muted designer-help' }, helpText()));
       const texts = sel.filter((l): l is TextLayer => l.type === 'text');
       const paths = sel.filter((l): l is PathLayer => l.type === 'path');
@@ -1631,7 +2137,20 @@ export class Designer {
           return s;
         })()
       ),
-      check('Clip to the layer below', () => l.clip, (v) => (l.clip = v), 'Only show this layer where the layer below it is (e.g. stripes inside a shape)')
+      check('Clip to the layer below', () => l.clip, (v) => (l.clip = v), 'Only show this layer where the layer below it is (e.g. stripes inside a shape)'),
+      this.doc.mirrors?.length
+        ? h(
+            'label',
+            { class: 'designer-field', title: 'How mirrors copy this layer onto the matching piece' },
+            h('span', null, 'In mirrors'),
+            (() => {
+              const mode = mirrorMode(l);
+              const s = h('select', null, MIRROR_MODES.map(([v, n, t]) => h('option', { value: v, selected: mode === v, title: t }, n)));
+              s.addEventListener('change', () => change('mirror', () => (l.mirror = s.value as MirrorMode)));
+              return s;
+            })()
+          )
+        : null
     );
 
     const filled = !(l.type === 'brush' || l.type === 'image' || (l.type === 'path' && !l.closed));
@@ -1825,6 +2344,7 @@ function helpText(): HTMLElement {
         'Arrows nudge (Shift: ×10); Delete removes; Ctrl/⌘ D duplicates; Ctrl/⌘ C / V copy and paste',
         'Ctrl/⌘ Z / Shift Z undo and redo',
         'Clip a layer to the one below for stripes or patterns inside a shape',
+        'Mirror (M): box one piece of the template and what you draw there is copied onto its matching piece; pins fix pieces that aren’t exact mirror images',
         'Transparent areas show the vehicle’s paint colour',
       ].map((t) => h('li', null, t))
     )

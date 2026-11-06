@@ -145,6 +145,13 @@ Open any `.ydr`, `.ydd`, `.yft`, `.ytyp`, `.ymap`, `.ymt`, `.ybn`, `.ytd`, `.ycd
       (stripes inside a shape), and groups (Ctrl/⌘ G; Ctrl/⌘ Shift G to ungroup). Several layers or a group can be
       resized and rotated together. Snapping to the canvas centre and other layers, align tools, flip and mirrored
       copies, undo/redo, copy/paste and keyboard shortcuts.
+    - **Mirrors** (M): drag a box around one piece of the template (a side, half a bumper) and whatever you draw
+      there is copied onto its matching piece. With a template, the matching piece is found for you; the mirror line
+      can sit at any angle. Because UV layouts are rarely exact mirror images, a pink **alignment ghost** shows the
+      piece's template lines where the copy lands (with how far off they are), **Auto-fit** lines it up, and **pins**
+      fix the rest: click a point on the source piece and drag its pink ◆ onto the matching point (1–2 pins move,
+      rotate and scale; 3 also stretch and skew; 4 or more bend the copy to fit every pin). Text and logos stay
+      readable on the other side; each layer can be set to Mirrored, Kept readable or This side only.
     - The design is kept editable as `designs/<name>.livery.json` next to the livery (and as a draft while you
       work), so **Edit** reopens it as layers. **Export PNG…** and **Save/Open design…** are in the settings.
   - **Create livery** writes a copy of the template with your artwork as its texture (DXT5 with mipmaps, any size) to

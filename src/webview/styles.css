@@ -1322,3 +1322,8 @@ input[type='number'] {
 .livery-designer-overlay.wide { width: calc(100vw - 330px); }
 .livery-designer-overlay .designer { flex: 1; min-height: 0; }
 .livery-designer-header { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.designer-mirror-list { max-height: 120px; }
+.designer-score { padding: 2px 0; }
+.designer-score.good { color: var(--vscode-testing-iconPassed, #3fb950); }
+.designer-score.fair { color: var(--vscode-editorWarning-foreground, #d29922); }
+.designer-score.poor { color: var(--vscode-errorForeground, #f85149); }

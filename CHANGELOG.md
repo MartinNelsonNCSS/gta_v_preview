@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.17.0
+
+- **Mirrors** in the livery designer, for UV layouts whose matching pieces (the two sides, the halves of a bumper or the roof) aren't exact mirror images:
+  - **Mirror** (M): drag a box around one piece. With a UV template, the designer finds the matching piece itself (by shape, then by lining up the template's lines), and a piece that is its own mirror image keeps the half you started the box on. Whatever you draw in the orange piece is copied onto the pink one, live and in the saved texture.
+  - The mirror line can sit at any angle (drag it, or its ends to tilt it), and the piece's outline can be reshaped.
+  - An **alignment ghost** draws the source piece's template lines, in pink, where the mirror puts them, with how far off they are on average. **Auto-fit** lines the copy up with the template (move, rotate, scale, stretch, skew).
+  - **Pins** for pieces that still don't match: click a point on the source piece, drag its pink ◆ onto the matching point. 1–2 pins move, rotate and scale the copy, 3 also stretch and skew it, 4 or more bend it like a rubber sheet to fit every pin.
+  - Text and logos stay readable on the mirrored side (placed and angled to match, not flipped); shapes, stripes and paint are mirrored. Each layer can be set to Mirrored, Kept readable or This side only.
+  - Several mirrors per design, each with **Swap sides**, **Find match**, **Reset fit**, on/off and undo; they're saved in the design file.
+
 ## 0.16.0
 
 - **Livery designer**: a vector editor for livery textures, in the mod-kit livery panel (over the creator's UV template) and for texture liveries (**Design…** in the Livery section, docked beside the model, which updates live as you draw, over the livery's own UV layout).
